@@ -1,9 +1,21 @@
 # ==========================================================================
-#  MCP Command Bridge — Dockerfile
-#  Debian-slim base (NOT Alpine) because the bridge dispatches real system
-#  commands: curl, ping, traceroute, node, npm, git, etc.
-#  Runs as root inside the container so the agent can apt-get install
-#  additional tools at runtime. Isolation comes from Docker itself.
+#  MCP Command Bridge — Dockerfile (slim build for small VPS)
+#
+#  Base: python:3.12-slim-bookworm (~150MB)
+#  Only installs what the bridge actually dispatches to:
+#    - curl        → run_program("curl"), http health check
+#    - iputils-ping → ping_host()
+#    - traceroute  → trace_route()
+#    - nodejs/npm  → run_program("node"/"npm"), run_workspace_script
+#    - git         → agent may clone repos
+#    - ca-certificates → HTTPS
+#
+#  Removed (not used by code, saves ~280MB):
+#    wget, dnsutils, net-tools, build-essential,
+#    vim, less, procps, openssh-client
+#
+#  NOT Alpine: musl libc breaks some Python wheels + node native modules.
+#  slim-bookworm is the sweet spot: small + compatible.
 # ==========================================================================
 FROM python:3.12-slim-bookworm
 
@@ -11,27 +23,15 @@ LABEL org.opencontainers.image.title="MCP Command Bridge"
 LABEL org.opencontainers.image.description="Controlled program execution MCP Bridge for mobile AI agents"
 LABEL org.opencontainers.image.source="https://github.com/XD06/MCP_Command_Bridge"
 
-# Install a comprehensive set of system tools the bridge can dispatch to.
-# - Network:   curl, wget, iputils-ping, traceroute, dnsutils, net-tools
-# - Runtimes:  nodejs, npm
-# - Build:     build-essential, git (so the agent can clone repos / compile)
-# - Utils:     vim, less, procps, ca-certificates, openssh-client
+# Install only the tools the bridge actually calls — nothing else.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    wget \
     iputils-ping \
     traceroute \
-    dnsutils \
-    net-tools \
     nodejs \
     npm \
-    build-essential \
     git \
-    vim \
-    less \
-    procps \
     ca-certificates \
-    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
