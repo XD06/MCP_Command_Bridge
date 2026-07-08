@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
-import locale
 
 from .config import BridgeConfig
 from .errors import ExecutionError
 from .secrets import mask_text
+
+# Force UTF-8 for all subprocess I/O — locale.getpreferredencoding() returns
+# ASCII in minimal Docker containers, causing UnicodeEncodeError on Chinese text.
+_UTF8_ENV = {
+    **os.environ,
+    "LANG": os.environ.get("LANG", "C.UTF-8"),
+    "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+}
 
 
 def run_process(
@@ -24,10 +32,11 @@ def run_process(
             cwd=str(cwd),
             shell=False,
             text=True,
-            encoding=locale.getpreferredencoding(False),
+            encoding="utf-8",
             errors="replace",
             capture_output=True,
             timeout=timeout_seconds,
+            env=_UTF8_ENV,
         )
     except subprocess.TimeoutExpired as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)

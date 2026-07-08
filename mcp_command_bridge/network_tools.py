@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import socket
 import subprocess
 import time
 import shutil
-import locale
 import platform
 
 from .errors import PolicyError
 
 HOST_PATTERN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+
+# Force UTF-8 for subprocess I/O in minimal containers.
+_UTF8_ENV = {
+    **os.environ,
+    "LANG": os.environ.get("LANG", "C.UTF-8"),
+    "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+}
 
 
 def _build_ping_command(host: str, count: int, timeout_seconds: int) -> list[str]:
@@ -31,10 +38,11 @@ def ping_host(host: str, count: int = 4, timeout_seconds: int = 10) -> dict[str,
             _build_ping_command(host, count, timeout_seconds),
             shell=False,
             text=True,
-            encoding=locale.getpreferredencoding(False),
+            encoding="utf-8",
             errors="replace",
             capture_output=True,
             timeout=timeout_seconds + 2,
+            env=_UTF8_ENV,
         )
     except subprocess.TimeoutExpired:
         return {
@@ -121,10 +129,11 @@ def trace_route(host: str, max_hops: int = 8, timeout_seconds: int = 60) -> dict
             command,
             shell=False,
             text=True,
-            encoding=locale.getpreferredencoding(False),
+            encoding="utf-8",
             errors="replace",
             capture_output=True,
             timeout=timeout_seconds,
+            env=_UTF8_ENV,
         )
     except subprocess.TimeoutExpired as exc:
         return {

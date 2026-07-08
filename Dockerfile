@@ -30,6 +30,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Set UTF-8 locale — default ASCII locale causes UnicodeEncodeError on Chinese text.
+# C.UTF-8 is available in Debian glibc without installing the locales package.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONUTF8=1 \
+    PYTHONIOENCODING=utf-8
+
 WORKDIR /app
 
 # Install Python dependencies first (better layer caching)
