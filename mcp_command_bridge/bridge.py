@@ -257,6 +257,30 @@ class CommandBridge:
             return preflight
         return self._file_call("make_directory", {"path": path}, lambda: make_directory(self.config, path))
 
+    def run_shell(
+        self,
+        command: str,
+        cwd: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> dict[str, object]:
+        """Execute a shell command string via bash -c.
+
+        This is the preferred way to run command-line operations.
+        Supports pipes, redirects, env vars, &&, ||, etc.
+        Example: run_shell('ls -la | grep .py') or run_shell('apt-get update && apt-get install -y curl')
+        """
+        if not self.config.server.expose_advanced_tools:
+            result: dict[str, object] = {
+                "ok": False,
+                "error": "advanced_tool_hidden",
+                "reason": "run_shell is hidden by server.expose_advanced_tools=false.",
+                "command": command,
+                "hint": "Use task tools such as http_probe, trace_route, or workspace file tools.",
+            }
+            self._audit("run_shell", [command], cwd or "", result)
+            return result
+        return self.run_program("bash", ["-c", command], cwd, timeout_seconds, _internal=True)
+
     def run_program(
         self,
         program: str,

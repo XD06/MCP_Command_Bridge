@@ -144,17 +144,43 @@ def build_mcp(config: BridgeConfig) -> Any:
 
     if config.server.expose_advanced_tools:
         @mcp.tool()
+        def run_shell(
+            command: str,
+            cwd: str | None = None,
+            timeout_seconds: int | None = None,
+        ) -> dict[str, object]:
+            """Execute a shell command string directly. This is the PREFERRED tool for command-line operations.
+
+            Supports pipes (|), redirects (>), env vars ($HOME), chaining (&&, ||), globs (*), and all bash syntax.
+            No need to write scripts to files first — just pass the command string.
+
+            Examples:
+              run_shell('ls -la /app/agent_workspace')
+              run_shell('pip install requests && python3 -c "import requests; print(requests.get(\\'https://httpbin.org/get\\').json())"')
+              run_shell('curl -s https://api.github.com/repos/python/cpython | python3 -m json.tool')
+              run_shell('git clone https://github.com/octocat/Hello-World.git /app/projects/hello')
+
+            Args:
+                command: Shell command string (executed via bash -c).
+                cwd: Working directory (default: /app/agent_workspace). Use /app/projects for project work.
+                timeout_seconds: Max execution time (default: per-program configured timeout).
+            """
+            return bridge.run_shell(command, cwd, timeout_seconds)
+
+        @mcp.tool()
         def run_program(
             program: str,
             args: list[str],
             cwd: str | None = None,
             timeout_seconds: int | None = None,
         ) -> dict[str, object]:
-            """Advanced tool: run a configured program with structured argv arguments.
+            """Run a configured program with structured argv arguments (shell=False).
+
+            Prefer run_shell() for most tasks — it supports pipes, redirects, and chaining.
+            Use run_program() only when you need precise control over argv without shell interpretation.
 
             program must be one of the configured programs (see get_policy).
-            args are passed as individual argv elements (shell=False).
-            cwd must be inside allowed_roots (or any directory if unrestricted).
+            args are passed as individual argv elements.
             """
             return bridge.run_program(program, args, cwd, timeout_seconds)
 

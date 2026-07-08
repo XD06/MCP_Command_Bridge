@@ -133,9 +133,8 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
     if unrestricted:
         summary = (
             "MCP Command Bridge — full container control mode. "
-            "You can run programs (bash, curl, python3, node, git, apt-get, pip, wget, npm), "
-            "read/write files, make HTTP requests with any method/headers via curl, "
-            "and execute scripts. The container is your sandbox.\n"
+            "Use run_shell(command) to execute any shell command directly (pipes, redirects, &&, || all supported). "
+            "No need to write scripts to files first — just pass the command string.\n"
             "IMPORTANT: Always save files under /app/agent_workspace (maps to host data/workspace/) "
             "or /app/projects (maps to host data/projects/) for persistence across container restarts. "
             "All operations are audit-logged to /app/logs/audit.jsonl (maps to host data/logs/)."
@@ -185,27 +184,31 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
             },
             {
                 "name": "programs",
-                "tools": ["run_program"] if config.server.expose_advanced_tools else [],
+                "tools": (["run_shell", "run_program"] if config.server.expose_advanced_tools else []),
                 "description": (
-                    f"Execute any configured program with structured argv (shell=False). "
-                    f"Available: {sorted(config.programs.keys())}. "
-                    f"Each has its own timeout. No URL/method/path restrictions in full-control mode."
+                    "run_shell(command): PREFERRED — execute shell command string via bash -c. "
+                    "Supports pipes (|), redirects (>), chaining (&&, ||), env vars ($HOME), globs (*). "
+                    "run_program(program, args): structured argv (shell=False), use when you need precise control. "
+                    f"Available programs: {sorted(config.programs.keys())}. "
+                    "No URL/method/path restrictions in full-control mode."
                     if config.server.expose_advanced_tools
-                    else "Advanced structured argv execution. Hidden unless expose_advanced_tools=true."
+                    else "Advanced execution. Hidden unless expose_advanced_tools=true."
                 ),
             },
         ],
         "recommended_tools": {
-            "check_http_status": "Use http_probe(url) for quick status check, or run_program('curl', [...]) for full control.",
-            "fetch_web_text": "Use fetch_url(url, max_bytes) for page text, or run_program('curl', [...]) for POST/custom headers.",
-            "diagnose_connectivity": "Use ping_host, dns_lookup, tcp_probe, or trace_route.",
-            "workspace_files": "Use write_file to create scripts, then run_program to execute them.",
-            "inspect_system": "Use system_snapshot for basic info, or run_program('bash', ['-c', '...']) for detailed inspection.",
-            "run_scripts": "Write scripts with write_file, then run via run_program('python3', ['script.py']) or run_program('node', ['script.js']).",
-            "install_packages": "run_program('pip', ['install', 'pkg']) or run_program('apt-get', ['install', '-y', 'pkg']).",
-            "git_operations": "run_program('git', ['clone', 'url', 'path']) etc.",
+            "run_command": "PREFERRED: Use run_shell('command') for any command-line operation. Supports pipes, redirects, &&, ||, env vars.",
+            "check_http_status": "run_shell('curl -s -o /dev/null -w "%{http_code}" https://example.com') or http_probe(url).",
+            "fetch_web_text": "run_shell('curl -s https://example.com') or fetch_url(url, max_bytes).",
+            "diagnose_connectivity": "run_shell('ping -c 4 example.com') or ping_host/dns_lookup/tcp_probe.",
+            "workspace_files": "Use write_file to create files, run_shell('cat /app/agent_workspace/file') to read them.",
+            "inspect_system": "run_shell('uname -a; df -h; free -m') or system_snapshot().",
+            "run_inline_code": "run_shell('python3 -c "print(1+1)"') or run_shell('node -e "console.log(1+1)"').",
+            "run_scripts": "Write scripts with write_file, then run_shell('python3 /app/agent_workspace/script.py').",
+            "install_packages": "run_shell('pip install requests') or run_shell('apt-get install -y curl').",
+            "git_operations": "run_shell('git clone https://github.com/user/repo.git /app/projects/repo').",
             "persistence": "IMPORTANT: Save files under /app/agent_workspace or /app/projects — these map to host and survive restarts. Other paths are ephemeral.",
-            "audit_trail": "All run_program calls are logged to /app/logs/audit.jsonl (host: data/logs/). Check with read_file('../logs/audit.jsonl').",
+            "audit_trail": "All run_shell/run_program calls are logged to /app/logs/audit.jsonl (host: data/logs/). Read with read_file('../logs/audit.jsonl').",
         },
         "persistence": {
             "workspace": "/app/agent_workspace → host: data/workspace/",
@@ -303,7 +306,24 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
         return {
             "name": "programs",
             "programs": programs_info,
+            "run_shell_exposed": config.server.expose_advanced_tools,
             "run_program_exposed": config.server.expose_advanced_tools,
+            "run_shell": {
+                "description": "PREFERRED tool for command execution. Pass a shell command string, executed via bash -c.",
+                "supports": "pipes (|), redirects (> >>), chaining (&& ||), env vars ($VAR), globs (*), subshells ($()), heredocs",
+                "examples": [
+                    "run_shell('ls -la /app/agent_workspace')",
+                    "run_shell('pip install requests && python3 -c \"import requests; print(requests.get(\\\"https://httpbin.org/get\\\").json())\"')",
+                    "run_shell('curl -s https://api.github.com/repos/python/cpython | python3 -m json.tool')",
+                    "run_shell('git clone https://github.com/user/repo.git /app/projects/repo')",
+                    "run_shell('echo \"hello\" > /app/agent_workspace/output.txt')",
+                    "run_shell('apt-get update && apt-get install -y jq')",
+                ],
+            },
+            "run_program": {
+                "description": "Structured argv execution (shell=False). Use when you need precise control without shell interpretation.",
+                "usage": "run_program(program, args, cwd, timeout_seconds)",
+            },
             "cwd_rule": (
                 "Any directory in the container (allowed_roots is empty = unrestricted)."
                 if not config.execution.allowed_roots
@@ -311,11 +331,11 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
             ),
             "note": (
                 "Full-control mode: all programs enabled with no arg/method/URL/path restrictions. "
-                "Use run_program(program, args, cwd, timeout_seconds)."
+                "Prefer run_shell() for most tasks. Use run_program() only for precise argv control."
                 if config.server.expose_advanced_tools and not config.execution.allowed_roots
-                else "Use task tools first. run_program is an advanced fallback."
+                else "Use task tools first. Advanced tools are hidden."
             ),
-            "audit": "Every run_program call is logged to /app/logs/audit.jsonl (host: data/logs/audit.jsonl) with timestamp, program, args, exit code, and duration.",
+            "audit": "Every run_shell and run_program call is logged to /app/logs/audit.jsonl (host: data/logs/audit.jsonl) with timestamp, program, args/command, exit code, and duration.",
             "persistence_reminder": "Save important outputs under /app/agent_workspace or /app/projects for persistence.",
         }
     if name in config.programs:
