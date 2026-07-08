@@ -69,17 +69,17 @@ For LAN use, keep `server.host: "0.0.0.0"` in the config and connect from the ph
 http://<computer-lan-ip>:8765/mcp
 ```
 
-## VPS Deployment (One-Click)
+## VPS Deployment
 
-Deploy to a VPS with Docker, Nginx, and Let's Encrypt SSL in one command:
+Deploy to a VPS with Docker — port 8765 is exposed for your own reverse proxy setup:
 
 ```bash
 git clone https://github.com/XD06/MCP_Command_Bridge.git
 cd MCP_Command_Bridge
-sudo bash deploy/deploy.sh --domain mcp.yourdomain.com --email you@example.com
+sudo bash deploy/deploy.sh --domain mcp.yourdomain.com
 ```
 
-The script installs Docker + Nginx + Certbot, generates a strong token, builds the Docker container, configures Nginx reverse proxy with rate limiting, obtains an SSL certificate, and sets up the firewall. Data (workspace, audit logs) is mapped to the host for easy access.
+The script installs Docker, generates a strong token, builds the container, and exposes port 8765. A reference Nginx config (TLS + rate limiting + security headers) is at `deploy/nginx/mcp-command-bridge.conf` — set up your own Nginx/Caddy for TLS and domain routing. Data (workspace, audit logs) is mapped to the host for easy access.
 
 See [docs/vps-deployment.md](docs/vps-deployment.md) for full details.
 

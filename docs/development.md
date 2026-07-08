@@ -53,7 +53,7 @@ MCP client
 | 13. Hide advanced run_program and add trace_route | Done | `run_program` is hidden unless `server.expose_advanced_tools=true`; added `trace_route`; relative workspace scripts are normalized before execution. | Passed |
 | 14. Linux compatibility and cross-platform ping | Done | `_build_ping_command` detects OS via `platform.system()`: Windows uses `-n`/`-w ms`, Linux uses `-c`/`-W s`. `traceroute` already auto-detects `tracert`. | Passed |
 | 15. VPS security hardening | Done | Added `ip_allowlist` and `rate_limit_per_minute` to `ServerConfig`; `validate_client_ip` in `auth.py`; `RateLimiter` class in `rate_limit.py`; env var override for `MCB_TOKEN` and `MCB_SECRET_*` in `config.py`; enhanced middleware in `server.py` with IP check + rate limit + 429 response. | Passed |
-| 16. VPS deployment infrastructure | Done | Dockerfile (Debian-slim + curl/ping/traceroute/node/npm/build-essential/git), docker-compose.yml (host bind mounts, resource limits, `host.docker.internal`), `deploy/deploy.sh` one-click script (Docker+Nginx+Certbot+UFW), Nginx reverse proxy config with rate limiting, systemd service unit, `config.vps.yaml` template, `scripts/generate_token.py`. | Passed |
+| 16. VPS deployment infrastructure | Done | Dockerfile (Debian-slim + curl/ping/traceroute/node/npm/build-essential/git), docker-compose.yml (port 8765 exposed, host bind mounts, resource limits, `host.docker.internal`), `deploy/deploy.sh` (Docker + token + config only), reference Nginx config at `deploy/nginx/`, systemd service unit, `config.vps.yaml` template, `scripts/generate_token.py`. | Passed |
 | 17. Comprehensive test suite | Done | Added `test_rate_limit.py` (9 tests), extended `test_auth.py` (+6 IP tests), `test_config.py` (+10 env var tests), `test_network_tools.py` (+7 ping command tests), `test_server.py` (+8 VPS config + middleware integration tests with Starlette TestClient). Total: 95 tests. | Passed |
 
 ## Run
@@ -180,6 +180,6 @@ Smoke-test auth:
 - `_get_client_ip` reads `X-Forwarded-For` first (for Nginx proxy), falls back to `request.client.host`.
 - Docker container runs as root with full toolset installed (curl, ping, traceroute, node, npm, git, build-essential) — isolation comes from Docker, resource limits from docker-compose (2 CPU / 512MB max).
 - `host.docker.internal` is mapped to the host gateway so the container can access host services (e.g., SiYuan at `host.docker.internal:6806`).
-- Nginx config includes TLS 1.2/1.3, HSTS, security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy), and rate limiting (10 req/s burst 20).
-- UFW firewall allows only SSH (22), HTTP (80), and HTTPS (443). Port 8765 is not exposed to the internet.
-- `deploy/deploy.sh` is idempotent — re-running with `--force` regenerates the token, `--update` pulls code and rebuilds.
+- Nginx reference config at `deploy/nginx/mcp-command-bridge.conf` includes TLS 1.2/1.3, HSTS, security headers, and rate limiting (10 req/s burst 20). Set up your own reverse proxy.
+- Port 8765 is exposed by Docker — use your reverse proxy (Nginx/Caddy) for TLS and firewall protection.
+- `deploy/deploy.sh` handles Docker + token + config only. Nginx/TLS/firewall are left to the user. Idempotent — `--force` regenerates the token, `--update` pulls code and rebuilds.

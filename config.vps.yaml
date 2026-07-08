@@ -1,13 +1,13 @@
 # ==========================================================================
 #  MCP Command Bridge — VPS / Docker Config Template
 #  The deploy script copies this to config.yaml and replaces __DOMAIN__.
-#  Bind to 127.0.0.1 behind Nginx reverse proxy (HTTPS termination).
+#  Listen on 0.0.0.0:8765 — set up your own reverse proxy for TLS.
 #  Secrets via env vars: MCB_TOKEN, MCB_SECRET_*
 # ==========================================================================
 
 server:
-  # Bind to loopback — Nginx handles public-facing TLS
-  host: "127.0.0.1"
+  # Listen on all interfaces — your reverse proxy handles TLS/firewall
+  host: "0.0.0.0"
   port: 8765
 
   # Token is read from MCB_TOKEN env var at runtime (always overrides this).

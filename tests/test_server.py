@@ -123,7 +123,7 @@ programs:
         vps_config = repo_root / "config.vps.yaml"
         if vps_config.exists():
             config = load_config(str(vps_config))
-            self.assertEqual(config.server.host, "127.0.0.1")
+            self.assertEqual(config.server.host, "0.0.0.0")
             self.assertEqual(config.server.port, 8765)
             self.assertTrue(config.server.compact_toolset)
             self.assertEqual(config.server.rate_limit_per_minute, 60)

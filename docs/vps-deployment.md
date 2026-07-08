@@ -1,15 +1,14 @@
 # VPS Deployment Guide — MCP Command Bridge
 
-## One-Click Deployment (Recommended)
+## Quick Deployment
 
-The fastest way to deploy. Run one command on your VPS and everything is set up: Docker, Nginx, SSL certificate, firewall, and the MCP Bridge container.
+The deploy script handles Docker setup, token generation, and container startup. Nginx/TLS/firewall are left for you to configure — a reference Nginx config is provided.
 
 ### Prerequisites
 
 - A VPS running Ubuntu 22.04+ or Debian 12+
 - Root/sudo access
-- A domain name pointing to your VPS IP (A record)
-- Ports 80 and 443 open
+- Docker installed (or let the script install it)
 
 ### Steps
 
@@ -22,24 +21,23 @@ git clone https://github.com/XD06/MCP_Command_Bridge.git
 cd MCP_Command_Bridge
 
 # 3. Run the deploy script
-sudo bash deploy/deploy.sh --domain mcp.yourdomain.com --email you@example.com
+sudo bash deploy/deploy.sh --domain mcp.yourdomain.com
 ```
 
-That's it. The script will:
+The script will:
 
-1. Install Docker, Nginx, and Certbot if missing
+1. Install Docker if missing
 2. Generate a strong bearer token (saved to `.env`)
-3. Build the Docker image and start the container
-4. Configure Nginx reverse proxy with rate limiting and security headers
-5. Obtain a Let's Encrypt SSL certificate
-6. Set up UFW firewall (SSH/HTTP/HTTPS only)
-7. Print your connection URL and token
+3. Build the Docker image and start the container (port 8765 exposed)
+4. Print your connection URL and token
+
+That's it. Port 8765 is now listening on your VPS. Set up your own reverse proxy (Nginx/Caddy/etc.) for TLS and domain routing.
 
 ### After Deployment
 
 Configure your MCP client (e.g., RikkaHub) with:
 
-- **URL**: `https://mcp.yourdomain.com/mcp`
+- **URL**: `https://mcp.yourdomain.com/mcp` (after setting up your reverse proxy)
 - **Authorization**: `Bearer <your-token>`
 - **Transport**: Streamable HTTP
 
@@ -60,7 +58,51 @@ This pulls the latest code, rebuilds the Docker image, and restarts the containe
 sudo bash deploy/deploy.sh --domain mcp.yourdomain.com --force
 ```
 
-This generates a new token. Update your MCP client with the new one.
+---
+
+## Nginx Reverse Proxy (Reference)
+
+A complete Nginx config is at `deploy/nginx/mcp-command-bridge.conf`. It includes TLS termination, rate limiting, connection limiting, and security headers.
+
+### Quick Setup
+
+```bash
+# Install Nginx + Certbot
+apt install -y nginx certbot python3-certbot-nginx
+
+# Copy the reference config
+cp deploy/nginx/mcp-command-bridge.conf /etc/nginx/sites-available/
+sed -i 's/YOUR_DOMAIN/mcp.yourdomain.com/g' /etc/nginx/sites-available/mcp-command-bridge.conf
+ln -sf /etc/nginx/sites-available/mcp-command-bridge.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# Test and reload
+nginx -t && systemctl reload nginx
+
+# Obtain SSL certificate
+certbot --nginx -d mcp.yourdomain.com
+```
+
+### Key Settings in the Config
+
+- `upstream mcp_bridge` — points to `127.0.0.1:8765` (same host) or your VPS IP (remote Nginx)
+- `limit_req_zone` — 10 req/s per IP with burst of 20
+- `limit_conn_zone` — max 10 concurrent connections per IP
+- `proxy_buffering off` — required for Streamable HTTP / SSE streaming
+- `proxy_read_timeout 300s` — long timeout for MCP sessions
+- Security headers: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
+
+### Using Caddy Instead
+
+If you prefer Caddy, the equivalent is simple:
+
+```Caddyfile
+mcp.yourdomain.com {
+    reverse_proxy 127.0.0.1:8765
+}
+```
+
+Caddy handles TLS automatically with Let's Encrypt.
 
 ---
 
@@ -68,8 +110,8 @@ This generates a new token. Update your MCP client with the new one.
 
 ```
 Phone (RikkaHub)
-  → HTTPS (443) → Nginx (TLS + rate limit + security headers)
-    → 127.0.0.1:8765 → Docker container (MCP Bridge)
+  → HTTPS (443) → Your reverse proxy (Nginx/Caddy, TLS + rate limit)
+    → VPS:8765 → Docker container (MCP Bridge)
       → subprocess: curl, ping, traceroute, node, python3, ...
 ```
 
@@ -86,8 +128,13 @@ MCP_Command_Bridge/
 │   ├── workspace/        # Agent's writable workspace (mapped into container)
 │   └── logs/
 │       └── audit.jsonl   # JSONL audit log of all tool calls
-├── docker-compose.yml    # Container config (volumes, limits, env)
-└── Dockerfile            # Image definition (Debian-slim + tools)
+├── docker-compose.yml    # Container config (port 8765 exposed, volumes, limits)
+├── Dockerfile            # Image definition (Debian-slim + tools)
+├── deploy/
+│   ├── deploy.sh         # Deployment script (Docker + token + config)
+│   └── nginx/
+│       └── mcp-command-bridge.conf  # Reference Nginx config
+└── ...
 ```
 
 ### Resource Limits
@@ -100,7 +147,7 @@ The container is constrained by docker-compose:
 
 ### Security Layers
 
-1. **Nginx**: TLS 1.2/1.3, rate limiting (10 req/s burst 20), security headers, HSTS
+1. **Your reverse proxy**: TLS 1.2/1.3, rate limiting, security headers, HSTS
 2. **App middleware**: IP allowlist (optional), app-level rate limiting (60 req/min), origin check, bearer token
 3. **Policy engine**: program allowlist, argument denylist, path containment, secret masking
 
@@ -112,7 +159,7 @@ The container has `host.docker.internal` mapped to the host gateway. To access a
 
 ## Manual Deployment (Alternative)
 
-If you prefer not to use the one-click script, or need more control:
+If you prefer not to use the deploy script:
 
 ### Install Docker
 
@@ -135,6 +182,8 @@ nano .env
 
 # Generate config from template
 sed 's/__DOMAIN__/mcp.yourdomain.com/g' config.vps.yaml > config.yaml
+# Or without a domain:
+sed 's/__DOMAIN__/*/g' config.vps.yaml > config.yaml
 # Edit config.yaml if needed (allowed_url_prefixes, etc.)
 nano config.yaml
 ```
@@ -146,25 +195,17 @@ mkdir -p data/workspace data/logs
 docker compose up -d --build
 ```
 
-### Nginx + SSL
+### Verify
 
 ```bash
-apt install -y nginx certbot python3-certbot-nginx
-cp deploy/nginx/mcp-command-bridge.conf /etc/nginx/sites-available/
-sed -i 's/__DOMAIN__/mcp.yourdomain.com/g' /etc/nginx/sites-available/mcp-command-bridge.conf
-ln -sf /etc/nginx/sites-available/mcp-command-bridge.conf /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
-certbot --nginx -d mcp.yourdomain.com
-```
+# Container running?
+docker compose ps
 
-### Firewall
+# Health check
+curl -sf http://127.0.0.1:8765/mcp/ && echo "OK"
 
-```bash
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
+# From another machine (should get 401 without token)
+curl http://your-vps-ip:8765/mcp/
 ```
 
 ---
@@ -181,12 +222,14 @@ Common causes: `.env` missing `MCB_TOKEN`, `config.yaml` not generated, port 876
 
 ### 502 Bad Gateway
 
-The container isn't running or Nginx can't reach it. Check:
+The container isn't running or your reverse proxy can't reach it. Check:
 
 ```bash
 docker compose ps
 curl http://127.0.0.1:8765/mcp/   # Should return 401 (not connection refused)
 ```
+
+If Nginx is on a different host, make sure port 8765 is reachable and the upstream in the Nginx config points to the right IP.
 
 ### 401 Unauthorized
 
@@ -200,7 +243,7 @@ The header must be exactly: `Authorization: Bearer <token>` (with space after Be
 
 ### 429 Too Many Requests
 
-Rate limited. Reduce request frequency, or adjust `rate_limit_per_minute` in `config.yaml`.
+Rate limited. Reduce request frequency, or adjust `rate_limit_per_minute` in `config.yaml` and the `limit_req` settings in your Nginx config.
 
 ### SSL certificate issues
 

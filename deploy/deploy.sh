@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # ==========================================================================
-#  MCP Command Bridge — One-Click VPS Deployment Script
+#  MCP Command Bridge — VPS Deployment Script
 #
 #  Usage:
-#    sudo bash deploy/deploy.sh --domain mcp.example.com
-#    sudo bash deploy/deploy.sh --domain mcp.example.com --email you@example.com
-#    sudo bash deploy/deploy.sh --domain mcp.example.com --force   # regenerate token
-#    sudo bash deploy/deploy.sh --update                           # pull + rebuild + restart
+#    sudo bash deploy/deploy.sh                          # deploy with default config
+#    sudo bash deploy/deploy.sh --domain mcp.example.com # fill in domain for allowed_origins
+#    sudo bash deploy/deploy.sh --force                  # regenerate token
+#    sudo bash deploy/deploy.sh --update                 # pull + rebuild + restart
 #
 #  What it does:
-#    1. Installs Docker + Nginx + Certbot if missing
+#    1. Installs Docker if missing
 #    2. Generates a strong bearer token
-#    3. Builds the Docker image and starts the container
-#    4. Configures Nginx reverse proxy with rate limiting
-#    5. Obtains Let's Encrypt SSL certificate
-#    6. Sets up UFW firewall (SSH/HTTP/HTTPS only)
-#    7. Prints connection info for your MCP client
+#    3. Builds the Docker image and starts the container (port 8765 exposed)
+#    4. Prints connection info for your MCP client
+#
+#  Nginx / TLS / Firewall: NOT handled by this script.
+#  See deploy/nginx/mcp-command-bridge.conf for a reference Nginx config.
 # ==========================================================================
 set -euo pipefail
 
@@ -34,25 +34,27 @@ die()   { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
 # --- Parse args ---
 DOMAIN=""
-EMAIL=""
 FORCE=false
 UPDATE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --domain) DOMAIN="$2"; shift 2 ;;
-        --email)  EMAIL="$2";  shift 2 ;;
         --force)  FORCE=true;  shift ;;
         --update) UPDATE=true; shift ;;
         --help|-h)
-            echo "Usage: sudo bash deploy/deploy.sh --domain mcp.example.com [--email you@example.com] [--force] [--update]"
+            echo "Usage: sudo bash deploy/deploy.sh [--domain mcp.example.com] [--force] [--update]"
+            echo ""
+            echo "  --domain  Fill in allowed_origins in config (optional)"
+            echo "  --force   Regenerate token"
+            echo "  --update  Pull latest code + rebuild + restart"
             exit 0 ;;
         *) die "Unknown option: $1 (use --help)" ;;
     esac
 done
 
 # --- Pre-flight checks ---
-[[ $EUID -ne 0 ]] && die "Run as root: sudo bash deploy/deploy.sh --domain $DOMAIN"
+[[ $EUID -ne 0 ]] && die "Run as root: sudo bash deploy/deploy.sh"
 
 # Resolve project directory (parent of deploy/)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -80,20 +82,19 @@ if [[ "$UPDATE" == "true" ]]; then
     exit 0
 fi
 
-# For normal deploy, domain is required
-[[ -z "$DOMAIN" ]] && die "Usage: sudo bash deploy/deploy.sh --domain mcp.example.com [--email you@example.com]"
-
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  MCP Command Bridge — VPS Deployment${NC}"
-echo -e "${BOLD}  Domain: $DOMAIN${NC}"
+if [[ -n "$DOMAIN" ]]; then
+    echo -e "${BOLD}  Domain: $DOMAIN${NC}"
+fi
 echo -e "${BOLD}══════════════════════════════════════════════════${NC}"
 echo ""
 
 # ============================================================
 #  Step 1: Install Docker
 # ============================================================
-info "Step 1/7: Checking Docker..."
+info "Step 1/3: Checking Docker..."
 if command -v docker &> /dev/null; then
     ok "Docker already installed: $(docker --version)"
 else
@@ -104,25 +105,9 @@ else
 fi
 
 # ============================================================
-#  Step 2: Install Nginx + Certbot
+#  Step 2: Generate token + config
 # ============================================================
-info "Step 2/7: Checking Nginx + Certbot..."
-NEED_PKG=false
-command -v nginx  &> /dev/null || NEED_PKG=true
-command -v certbot &> /dev/null || NEED_PKG=true
-if [[ "$NEED_PKG" == "true" ]]; then
-    info "Installing Nginx + Certbot..."
-    apt-get update -qq
-    apt-get install -y -qq nginx certbot python3-certbot-nginx ufw
-    ok "Nginx + Certbot installed"
-else
-    ok "Nginx + Certbot already installed"
-fi
-
-# ============================================================
-#  Step 3: Generate token + config
-# ============================================================
-info "Step 3/7: Generating token and config..."
+info "Step 2/3: Generating token and config..."
 
 # Create data directories on host
 mkdir -p data/workspace data/logs
@@ -157,13 +142,19 @@ fi
 
 # Generate config.yaml from template
 info "Generating config.yaml from template..."
-sed "s/__DOMAIN__/$DOMAIN/g" config.vps.yaml > config.yaml
-ok "config.yaml created (domain: $DOMAIN)"
+if [[ -n "$DOMAIN" ]]; then
+    sed "s/__DOMAIN__/$DOMAIN/g" config.vps.yaml > config.yaml
+    ok "config.yaml created (domain: $DOMAIN)"
+else
+    # No domain provided — replace placeholder with a wildcard
+    sed 's/__DOMAIN__/*/g' config.vps.yaml > config.yaml
+    warn "No --domain provided. allowed_origins set to '*' — edit config.yaml to restrict"
+fi
 
 # ============================================================
-#  Step 4: Build + start Docker container
+#  Step 3: Build + start Docker container
 # ============================================================
-info "Step 4/7: Building Docker image and starting container..."
+info "Step 3/3: Building Docker image and starting container..."
 docker compose up -d --build 2>&1 | tail -5
 sleep 3
 
@@ -189,67 +180,6 @@ for i in $(seq 1 10); do
 done
 
 # ============================================================
-#  Step 5: Configure Nginx
-# ============================================================
-info "Step 5/7: Configuring Nginx reverse proxy..."
-
-NGINX_CONF="/etc/nginx/sites-available/mcp-command-bridge.conf"
-cp deploy/nginx/mcp-command-bridge.conf "$NGINX_CONF"
-sed -i "s/__DOMAIN__/$DOMAIN/g" "$NGINX_CONF"
-
-ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
-# Remove default site if it conflicts
-rm -f /etc/nginx/sites-enabled/default
-
-# Test and reload
-if nginx -t 2>&1 | tail -2; then
-    systemctl reload nginx
-    ok "Nginx configured and reloaded"
-else
-    die "Nginx config test failed"
-fi
-
-# ============================================================
-#  Step 6: Obtain SSL certificate
-# ============================================================
-info "Step 6/7: Obtaining SSL certificate via Let's Encrypt..."
-
-if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
-    ok "SSL certificate already exists for $DOMAIN"
-else
-    CERTBOT_ARGS="--nginx -d $DOMAIN --non-interactive --agree-tos"
-    if [[ -n "$EMAIL" ]]; then
-        CERTBOT_ARGS="$CERTBOT_ARGS -m $EMAIL"
-    else
-        CERTBOT_ARGS="$CERTBOT_ARGS --register-unsafely-without-email"
-        warn "No --email provided. Certificate renewal notices will not be sent."
-    fi
-
-    info "Running: certbot $CERTBOT_ARGS"
-    if certbot $CERTBOT_ARGS; then
-        ok "SSL certificate obtained for $DOMAIN"
-    else
-        warn "Certbot failed. You can obtain the certificate manually later:"
-        warn "  sudo certbot --nginx -d $DOMAIN"
-        warn "The server is running on HTTP (port 80) for now."
-    fi
-fi
-
-# Ensure certbot renewal timer is enabled
-systemctl enable --now certbot.timer 2>/dev/null || true
-
-# ============================================================
-#  Step 7: Configure firewall
-# ============================================================
-info "Step 7/7: Configuring UFW firewall..."
-ufw allow 22/tcp  2>/dev/null || true
-ufw allow 80/tcp  2>/dev/null || true
-ufw allow 443/tcp 2>/dev/null || true
-# Do NOT allow 8765 — it should only be reachable via Nginx on localhost
-ufw --force enable 2>/dev/null || true
-ok "Firewall configured (SSH/HTTP/HTTPS allowed, 8765 blocked)"
-
-# ============================================================
 #  Summary
 # ============================================================
 echo ""
@@ -259,9 +189,16 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo -e "  ${BOLD}Connection info for your MCP client:${NC}"
 echo ""
-echo    "    URL:           https://$DOMAIN/mcp"
+if [[ -n "$DOMAIN" ]]; then
+    echo    "    URL:           https://$DOMAIN/mcp"
+    echo    "    (after you set up Nginx + TLS)"
+else
+    echo    "    URL:           http://<your-vps-ip>:8765/mcp"
+    echo    "    (or set up Nginx + TLS, see deploy/nginx/ for reference config)"
+fi
 echo    "    Transport:     Streamable HTTP"
 echo    "    Authorization: Bearer $TOKEN"
+echo    "    Port:          8765 (exposed)"
 echo ""
 echo -e "  ${BOLD}Data on host:${NC}"
 echo ""
@@ -270,6 +207,12 @@ echo    "    Audit log:     $PROJECT_DIR/data/logs/audit.jsonl"
 echo    "    Config:        $PROJECT_DIR/config.yaml"
 echo    "    Token file:    $PROJECT_DIR/.env"
 echo ""
+echo -e "  ${BOLD}Next steps:${NC}"
+echo ""
+echo    "    1. Set up your reverse proxy (Nginx/Caddy) for TLS"
+echo    "       Reference config: deploy/nginx/mcp-command-bridge.conf"
+echo    "    2. Configure your MCP client with the URL + token above"
+echo    ""
 echo -e "  ${BOLD}Useful commands:${NC}"
 echo ""
 echo    "    docker compose logs -f        # View live logs"
@@ -277,6 +220,5 @@ echo    "    docker compose restart        # Restart container"
 echo    "    docker compose down           # Stop container"
 echo    "    docker compose up -d --build  # Rebuild after code change"
 echo    "    sudo bash deploy/deploy.sh --update  # Pull + rebuild + restart"
-echo    "    sudo certbot renew --dry-run  # Test cert renewal"
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
