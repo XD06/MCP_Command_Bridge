@@ -22,9 +22,12 @@ def build_mcp(config: BridgeConfig) -> Any:
         port=config.server.port,
         streamable_http_path="/mcp",
         sse_path="/sse",
+        # Disable DNS rebinding protection — Nginx + Bearer token already protect the endpoint.
+        # This allows mobile MCP clients (RikkaHub etc.) to connect without Host/Origin issues.
         transport_security=TransportSecuritySettings(
-            allowed_hosts=list(config.server.allowed_hosts),
-            allowed_origins=list(config.server.allowed_origins),
+            enable_dns_rebinding_protection=False,
+            allowed_hosts=[],
+            allowed_origins=[],
         ),
     )
 
@@ -215,7 +218,6 @@ def build_asgi_app(config_path: str, transport: str = "streamable-http") -> Any:
                             "X-RateLimit-Remaining": str(remaining),
                         },
                     )
-                validate_origin(request.headers.get("origin"), config.server)
                 validate_authorization(request.headers.get("authorization"), config.server)
             except Exception as exc:
                 return JSONResponse(

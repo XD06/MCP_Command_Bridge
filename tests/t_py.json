@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"run_program","arguments":{"program":"python3","args":["-c","import platform,socket,os; print(f'Python OK | OS={platform.system()} | Host={socket.gethostname()} | CWD={os.getcwd()}')"]}}}

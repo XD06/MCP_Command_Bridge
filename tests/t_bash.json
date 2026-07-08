@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"run_program","arguments":{"program":"bash","args":["-c","echo 'Hello from container!' && whoami && uname -a && df -h / && free -m"]}}}
