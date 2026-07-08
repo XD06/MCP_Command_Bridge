@@ -138,6 +138,9 @@ def _validate_npm(program_config: ProgramConfig, args: list[str]) -> None:
 def _validate_script_program(program_config: ProgramConfig, args: list[str], program: str) -> None:
     if not args:
         raise PolicyError("script path is required", program=program)
+    # If first arg is a flag (e.g. -c, -m, -e), skip script path validation
+    if args[0].startswith("-"):
+        return
     script = Path(args[0]).expanduser().resolve()
     if not script.exists() or not script.is_file():
         raise PolicyError(
