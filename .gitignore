@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+logs/
+*.log
+.env
+.env.*
+!.env.example
+secrets/
+# Generated runtime config (from config.vps.yaml template)
+config.yaml
+# Docker host-side data
+data/

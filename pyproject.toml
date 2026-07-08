@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-command-bridge"
+version = "0.1.0"
+description = "Controlled local program execution bridge for mobile MCP clients"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.9.0",
+  "PyYAML>=6.0.2",
+  "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+mcp-command-bridge = "mcp_command_bridge.server:main"
+
+[tool.setuptools.packages.find]
+include = ["mcp_command_bridge*"]

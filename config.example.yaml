@@ -1,0 +1,74 @@
+server:
+  host: "0.0.0.0"
+  port: 8765
+  token: "666666"
+  expose_advanced_tools: false
+  require_capability_preflight: true
+  compact_toolset: true
+  allowed_origins:
+    - "http://localhost"
+    - "http://127.0.0.1"
+    - "http://192.168.11.4"
+    - "http://192.168.11.4:8765"
+  allowed_hosts:
+    - "127.0.0.1:8765"
+    - "localhost:8765"
+    - "0.0.0.0:8765"
+    - "192.168.11.4:8765"
+
+execution:
+  default_cwd: "."
+  allowed_roots:
+    - "."
+    - "agent_workspace"
+  writable_roots:
+    - "agent_workspace"
+  timeout_seconds: 30
+  max_output_bytes: 200000
+  audit_log: "logs/audit.jsonl"
+
+secrets:
+  SIYUAN_TOKEN: "replace-me"
+
+programs:
+  curl:
+    enabled: true
+    executable: "curl"
+    allowed_methods: ["GET", "POST", "PUT", "PATCH", "HEAD"]
+    denied_methods: ["DELETE"]
+    allowed_url_prefixes:
+      - "http://127.0.0.1:6806/"
+      - "http://127.0.0.1:7777/"
+      - "https://www.baidu.com/"
+      - "https://www.bing.com/"
+      - "https://example.com/"
+      - "https://www.google.com/"
+      - "https://github.com/"
+      - "https://api.github.com/"
+      - "https://api.ollama.com/"
+      - "https://raw.githubusercontent.com/"
+      - "https://httpbin.org/"
+    denied_schemes: ["file", "ftp"]
+    denied_args: ["-o", "--output", "-O", "--remote-name", "-T", "--upload-file", "--config", "-K"]
+    timeout_seconds: 30
+
+  npm:
+    enabled: true
+    executable: "npm"
+    allowed_subcommands: ["test", "run"]
+    denied_args: ["exec", "x", "install", "ci"]
+    timeout_seconds: 120
+
+  node:
+    enabled: true
+    executable: "node"
+    denied_args: ["-e", "--eval"]
+    allowed_script_roots: [".", "agent_workspace"]
+    timeout_seconds: 60
+
+  python3:
+    enabled: true
+    executable: "python"
+    denied_args: ["-c", "-m"]
+    allowed_script_roots: [".", "agent_workspace"]
+    timeout_seconds: 60

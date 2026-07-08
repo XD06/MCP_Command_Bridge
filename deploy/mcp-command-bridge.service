@@ -1,0 +1,72 @@
+# ==========================================================================
+#  MCP Command Bridge — systemd service unit
+#  For direct (non-Docker) VPS deployment. All system tools are naturally
+#  available on the host.
+#
+#  Installation:
+#    sudo cp deploy/mcp-command-bridge.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable mcp-command-bridge
+#    sudo systemctl start mcp-command-bridge
+#
+#  Logs:  journalctl -u mcp-command-bridge -f
+#  Status: systemctl status mcp-command-bridge
+# ==========================================================================
+[Unit]
+Description=MCP Command Bridge (mobile agent execution bridge)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcpbridge
+Group=mcpbridge
+
+# Working directory — adjust to your install path
+WorkingDirectory=/opt/mcp-command-bridge
+
+# Python executable — use venv if you set one up
+# ExecStart=/opt/mcp-command-bridge/.venv/bin/python -m mcp_command_bridge.server --config /opt/mcp-command-bridge/config.vps.yaml
+ExecStart=/usr/bin/python3 -m mcp_command_bridge.server --config /opt/mcp-command-bridge/config.vps.yaml
+
+# Environment: load secrets from a file the service can read
+# Create /etc/mcp-command-bridge.env with:
+#   MCB_TOKEN=your-strong-random-token
+#   MCB_SECRET_SIYUAN_TOKEN=your-siyuan-token
+EnvironmentFile=/etc/mcp-command-bridge.env
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mcp-command-bridge/logs /opt/mcp-command-bridge/agent_workspace
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=256M
+TasksMax=64
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mcp-command-bridge
+
+[Install]
+WantedBy=multi-user.target
