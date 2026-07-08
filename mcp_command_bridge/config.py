@@ -128,47 +128,83 @@ def parse_config(raw: dict[str, Any], base_dir: str | Path = ".") -> BridgeConfi
 
 
 def public_policy(config: BridgeConfig) -> dict[str, object]:
+    # Build dynamic descriptions based on actual config
+    unrestricted = config.server.expose_advanced_tools and not config.execution.allowed_roots
+    if unrestricted:
+        summary = (
+            "MCP Command Bridge — full container control mode. "
+            "You can run programs (bash, curl, python3, node, git, apt-get, pip, wget, npm), "
+            "read/write files, make HTTP requests with any method/headers via curl, "
+            "and execute scripts. The container is your sandbox."
+        )
+    else:
+        summary = (
+            "Mobile MCP Command Bridge exposes safe task tools first; "
+            "use get_capability_details(name) for detailed policy."
+        )
+
+    http_tools = ["http_request"] if config.server.compact_toolset else ["http_probe", "fetch_url"]
+    if config.server.expose_advanced_tools and "curl" in config.programs:
+        http_tools.append("run_program(curl)")
+
     return {
-        "summary": "Mobile MCP Command Bridge exposes safe task tools first; use get_capability_details(name) for detailed policy.",
+        "summary": summary,
         "capabilities": [
             {
                 "name": "http",
-                "tools": ["http_request"] if config.server.compact_toolset else ["http_probe", "fetch_url"],
-                "description": "Check status or fetch text from allowed HTTP/HTTPS URLs.",
+                "tools": http_tools,
+                "description": (
+                    "http_probe: check URL status. fetch_url: fetch page text. "
+                    "run_program('curl'): full HTTP with any method, headers, POST body — no restrictions."
+                    if config.server.expose_advanced_tools
+                    else "Check status or fetch text from allowed HTTP/HTTPS URLs."
+                ),
             },
             {
                 "name": "network",
                 "tools": ["network_check"] if config.server.compact_toolset else ["ping_host", "dns_lookup", "tcp_probe", "trace_route"],
-                "description": "Query-only connectivity diagnostics.",
+                "description": "Query-only connectivity diagnostics: ping, DNS, TCP probe, traceroute.",
             },
             {
                 "name": "workspace",
                 "tools": ["workspace"] if config.server.compact_toolset else ["list_files", "read_file", "write_file", "append_file", "make_directory"],
-                "description": "Read and write files only inside configured writable roots.",
+                "description": (
+                    f"Read/write files in: {[str(p) for p in config.execution.writable_roots]}. "
+                    "Use write_file to create scripts, then run_program to execute them."
+                ),
             },
             {
                 "name": "system",
                 "tools": ["system_snapshot"],
-                "description": "Safe read-only system context without environment variables or secrets.",
+                "description": "Read-only OS/kernel/Python/IP info. For env vars use run_program('bash', ['-c', 'env']).",
             },
             {
                 "name": "programs",
                 "tools": ["run_program"] if config.server.expose_advanced_tools else [],
-                "description": "Advanced structured argv execution. Hidden unless expose_advanced_tools=true.",
+                "description": (
+                    f"Execute any configured program with structured argv (shell=False). "
+                    f"Available: {sorted(config.programs.keys())}. "
+                    f"Each has its own timeout. No URL/method/path restrictions in full-control mode."
+                    if config.server.expose_advanced_tools
+                    else "Advanced structured argv execution. Hidden unless expose_advanced_tools=true."
+                ),
             },
         ],
         "recommended_tools": {
-            "check_http_status": "Use http_probe(url) instead of curl -o /dev/null -w %{http_code}.",
-            "fetch_web_text": "Use fetch_url(url, max_bytes) instead of raw curl when you need page text.",
-            "diagnose_connectivity": "Use ping_host, dns_lookup, tcp_probe, or trace_route instead of raw network commands.",
-            "workspace_files": "Use list_files/read_file/write_file/append_file/make_directory for files under writable_roots.",
-            "inspect_system": "Use system_snapshot instead of writing ad hoc system inspection scripts.",
-            "run_scripts": "Write scripts into writable_roots first, then run them with python3 or node.",
+            "check_http_status": "Use http_probe(url) for quick status check, or run_program('curl', [...]) for full control.",
+            "fetch_web_text": "Use fetch_url(url, max_bytes) for page text, or run_program('curl', [...]) for POST/custom headers.",
+            "diagnose_connectivity": "Use ping_host, dns_lookup, tcp_probe, or trace_route.",
+            "workspace_files": "Use write_file to create scripts, then run_program to execute them.",
+            "inspect_system": "Use system_snapshot for basic info, or run_program('bash', ['-c', '...']) for detailed inspection.",
+            "run_scripts": "Write scripts with write_file, then run via run_program('python3', ['script.py']) or run_program('node', ['script.js']).",
+            "install_packages": "run_program('pip', ['install', 'pkg']) or run_program('apt-get', ['install', '-y', 'pkg']).",
+            "git_operations": "run_program('git', ['clone', 'url', 'path']) etc.",
         },
         "detail_names": ["http", "network", "workspace", "system", "programs", *sorted(config.programs.keys())],
         "advanced_tools_exposed": config.server.expose_advanced_tools,
         "preflight_required": config.server.require_capability_preflight,
         "compact_toolset": config.server.compact_toolset,
+        "mode": "full_control" if unrestricted else "restricted",
     }
 
 
@@ -176,14 +212,31 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
     name = name.strip()
     if name == "http":
         curl = config.programs.get("curl")
+        curl_unrestricted = curl and not curl.allowed_url_prefixes and not curl.allowed_methods and not curl.denied_args
         return {
             "name": "http",
             "tools": {
-                "http_probe": "Check an allowed URL and return status.",
-                "fetch_url": "Fetch text from an allowed URL with output limit.",
+                "http_probe": "Check a URL and return HTTP status (HEAD request).",
+                "fetch_url": "Fetch page text from a URL (GET, with output size limit).",
             },
-            "allowed_url_prefixes": list(curl.allowed_url_prefixes) if curl else [],
-            "allowed_methods": list(curl.allowed_methods) if curl else [],
+            "curl_via_run_program": {
+                "available": config.server.expose_advanced_tools and curl is not None,
+                "description": (
+                    "Full HTTP client: any method (GET/POST/PUT/DELETE/PATCH), custom headers, "
+                    "POST body, cookies, etc. No URL/method/header restrictions."
+                    if curl_unrestricted
+                    else "HTTP client with configured restrictions."
+                ),
+                "example": "run_program('curl', ['-X', 'POST', '-H', 'Content-Type: application/json', '-d', '{\"key\":\"val\"}', 'https://api.example.com/'])",
+            },
+            "allowed_url_prefixes": (
+                "(empty = all URLs allowed)" if curl and not curl.allowed_url_prefixes
+                else list(curl.allowed_url_prefixes) if curl else []
+            ),
+            "allowed_methods": (
+                "(empty = all methods allowed)" if curl and not curl.allowed_methods
+                else list(curl.allowed_methods) if curl else []
+            ),
         }
     if name == "network":
         return {
@@ -203,23 +256,49 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
             "writable_roots": [str(path) for path in config.execution.writable_roots],
             "path_rule": "Use paths relative to the workspace root. '.' or the workspace directory name refers to the root.",
             "list_files": {"recursive": "Optional boolean", "max_entries": "Capped at 500"},
+            "tip": "Use write_file to create Python/Node scripts, then run_program to execute them.",
         }
     if name == "system":
         return {
             "name": "system",
             "tools": {"system_snapshot": "Read-only OS, hostname, local IPv4, Python version, and workspace roots."},
-            "privacy": "Does not return environment variables, tokens, or secret values.",
+            "note": (
+                "system_snapshot does not return env vars. "
+                "For env vars or detailed system info, use run_program('bash', ['-c', 'env']) "
+                "or run_program('bash', ['-c', 'cat /proc/cpuinfo']) etc."
+                if config.server.expose_advanced_tools
+                else "Does not return environment variables, tokens, or secret values."
+            ),
         }
     if name == "programs":
+        programs_info = {}
+        for pname, pconfig in config.programs.items():
+            programs_info[pname] = {
+                "enabled": pconfig.enabled,
+                "timeout_seconds": pconfig.timeout_seconds or config.execution.timeout_seconds,
+                "restrictions": _program_restrictions_summary(pconfig),
+            }
         return {
             "name": "programs",
-            "programs": sorted(config.programs.keys()),
+            "programs": programs_info,
             "run_program_exposed": config.server.expose_advanced_tools,
-            "note": "Use task tools first. run_program is an advanced fallback and may be hidden.",
+            "cwd_rule": (
+                "Any directory in the container (allowed_roots is empty = unrestricted)."
+                if not config.execution.allowed_roots
+                else f"Must be inside: {[str(p) for p in config.execution.allowed_roots]}"
+            ),
+            "note": (
+                "Full-control mode: all programs enabled with no arg/method/URL/path restrictions. "
+                "Use run_program(program, args, cwd, timeout_seconds)."
+                if config.server.expose_advanced_tools and not config.execution.allowed_roots
+                else "Use task tools first. run_program is an advanced fallback."
+            ),
         }
     if name in config.programs:
         program = config.programs[name]
-        return {"name": name, "program": _program_policy(program)}
+        result = {"name": name, "program": _program_policy(program)}
+        result["restrictions_summary"] = _program_restrictions_summary(program)
+        return result
     return {
         "ok": False,
         "error": "unknown_capability",
@@ -246,15 +325,35 @@ def full_policy(config: BridgeConfig) -> dict[str, object]:
 def _program_policy(program: ProgramConfig) -> dict[str, object]:
     return {
         "enabled": program.enabled,
-        "allowed_methods": list(program.allowed_methods),
+        "allowed_methods": list(program.allowed_methods) if program.allowed_methods else "(empty = all allowed)",
         "denied_methods": list(program.denied_methods),
-        "allowed_url_prefixes": list(program.allowed_url_prefixes),
+        "allowed_url_prefixes": list(program.allowed_url_prefixes) if program.allowed_url_prefixes else "(empty = all URLs)",
         "denied_schemes": list(program.denied_schemes),
-        "denied_args": list(program.denied_args),
-        "allowed_subcommands": list(program.allowed_subcommands),
-        "allowed_script_roots": [str(path) for path in program.allowed_script_roots],
+        "denied_args": list(program.denied_args) if program.denied_args else "(empty = no args blocked)",
+        "allowed_subcommands": list(program.allowed_subcommands) if program.allowed_subcommands else "(empty = all subcommands)",
+        "allowed_script_roots": [str(path) for path in program.allowed_script_roots] if program.allowed_script_roots else "(empty = any path)",
         "timeout_seconds": program.timeout_seconds,
     }
+
+
+def _program_restrictions_summary(program: ProgramConfig) -> str:
+    """Return a human-readable summary of what's restricted for this program."""
+    if not program.enabled:
+        return "disabled"
+    parts = []
+    if not program.denied_args and not program.denied_methods and not program.allowed_url_prefixes and not program.allowed_subcommands and not program.allowed_script_roots:
+        return "no restrictions (full access)"
+    if program.denied_args:
+        parts.append(f"denied args: {list(program.denied_args)}")
+    if program.denied_methods:
+        parts.append(f"denied methods: {list(program.denied_methods)}")
+    if program.allowed_url_prefixes:
+        parts.append(f"URL whitelist: {list(program.allowed_url_prefixes)}")
+    if program.allowed_subcommands:
+        parts.append(f"subcommand whitelist: {list(program.allowed_subcommands)}")
+    if program.allowed_script_roots:
+        parts.append(f"script path restricted to: {[str(p) for p in program.allowed_script_roots]}")
+    return "; ".join(parts) if parts else "no restrictions"
 
 
 def _parse_program(raw: dict[str, Any], base: Path) -> ProgramConfig:
