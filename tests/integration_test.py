@@ -125,30 +125,51 @@ def main():
     test("system_snapshot", r, lambda x: x.get("ok"))
     print()
 
-    # === 2. Bash commands ===
-    print("--- 2. Bash Commands ---")
-    r = run_program("bash", ["-c", "echo 'Hello from container!'"])
-    test("bash echo", r, lambda x: x.get("ok") and "Hello from container" in x.get("stdout",""))
+    # === 2. Bash commands (via run_shell) ===
+    print("--- 2. Bash Commands (via run_shell) ---")
+    r = run_shell("echo 'Hello from container!'")
+    test("run_shell echo", r, lambda x: x.get("ok") and "Hello from container" in x.get("stdout",""))
 
-    r = run_program("bash", ["-c", "whoami && id && hostname"])
-    test("bash whoami/id/hostname", r, lambda x: x.get("ok") and "root" in x.get("stdout",""))
+    r = run_shell("whoami && id && hostname")
+    test("run_shell whoami/id/hostname", r, lambda x: x.get("ok") and "root" in x.get("stdout",""))
 
-    r = run_program("bash", ["-c", "uname -a && cat /etc/os-release | head -3"])
-    test("bash system info", r, lambda x: x.get("ok"))
+    r = run_shell("uname -a && cat /etc/os-release | head -3")
+    test("run_shell system info", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "df -h / && free -m && nproc"])
-    test("bash disk/mem/cpu", r, lambda x: x.get("ok"))
+    r = run_shell("df -h / && free -m && nproc")
+    test("run_shell disk/mem/cpu", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "ls -la /app/"])
-    test("bash ls /app", r, lambda x: x.get("ok"))
+    r = run_shell("ls -la /app/")
+    test("run_shell ls /app", r, lambda x: x.get("ok"))
+
+    r = run_shell("echo 'pipe test' | rev")
+    test("run_shell pipe", r, lambda x: x.get("ok") and "tset" in x.get("stdout",""))
+
+    r = run_shell("echo 'redirect test' > /app/agent_workspace/redirect_out.txt && cat /app/agent_workspace/redirect_out.txt")
+    test("run_shell redirect", r, lambda x: x.get("ok") and "redirect test" in x.get("stdout",""))
     print()
 
-    # === 3. Python3 ===
-    print("--- 3. Python3 ---")
-    r = run_program("python3", ["-c", "print('Python inline OK'); import sys; print(sys.version)"])
+    # === 2b. Chinese / UTF-8 encoding ===
+    print("--- 2b. Chinese / UTF-8 Encoding ---")
+    r = run_shell("echo '你好世界'")
+    test("run_shell chinese echo", r, lambda x: x.get("ok") and "你好世界" in x.get("stdout",""))
+
+    r = run_shell("echo '你好，容器！' > /app/agent_workspace/chinese.txt && cat /app/agent_workspace/chinese.txt")
+    test("run_shell chinese file", r, lambda x: x.get("ok") and "你好" in x.get("stdout",""))
+
+    r = run_shell("python3 -c \"print('中文输出测试')\"")
+    test("run_shell python chinese", r, lambda x: x.get("ok") and "中文" in x.get("stdout",""))
+
+    r = run_shell("echo 'Hello 🌍 World 🚀'")
+    test("run_shell emoji", r, lambda x: x.get("ok") and "🌍" in x.get("stdout",""))
+    print()
+
+    # === 3. Python3 (via run_shell) ===
+    print("--- 3. Python3 (via run_shell) ---")
+    r = run_shell("python3 -c \"print('Python inline OK'); import sys; print(sys.version)\"")
     test("python3 -c inline", r, lambda x: x.get("ok") and "Python inline OK" in x.get("stdout",""))
 
-    r = run_program("python3", ["-c", "import json,os,platform; print(json.dumps({'cwd':os.getcwd(),'platform':platform.system(),'pid':os.getpid()}))"])
+    r = run_shell("python3 -c \"import json,os,platform; print(json.dumps({'cwd':os.getcwd(),'platform':platform.system(),'pid':os.getpid()}))\"")
     test("python3 -c json info", r, lambda x: x.get("ok"))
     print()
 
@@ -179,51 +200,51 @@ def main():
     test("run_workspace_script python3", r, lambda x: x.get("ok"))
     print()
 
-    # === 6. pip install / uninstall ===
-    print("--- 6. pip Install / Uninstall ---")
-    r = run_program("pip", ["install", "requests"], timeout=120)
+    # === 6. pip install / uninstall (via run_shell) ===
+    print("--- 6. pip Install / Uninstall (via run_shell) ---")
+    r = run_shell("pip install requests", timeout=120)
     test("pip install requests", r, lambda x: x.get("ok"))
 
-    r = run_program("python3", ["-c", "import requests; print('requests version:', requests.__version__)"])
+    r = run_shell("python3 -c 'import requests; print(\"requests version:\", requests.__version__)'")
     test("python3 import requests", r, lambda x: x.get("ok") and "requests version" in x.get("stdout",""))
 
-    r = run_program("pip", ["uninstall", "-y", "requests"], timeout=60)
+    r = run_shell("pip uninstall -y requests", timeout=60)
     test("pip uninstall requests", r, lambda x: x.get("ok"))
 
-    r = run_program("python3", ["-c", "try:\n    import requests\n    print('STILL INSTALLED')\nexcept ImportError:\n    print('UNINSTALLED OK')"])
+    r = run_shell("python3 -c \"try:\n    import requests\n    print('STILL INSTALLED')\nexcept ImportError:\n    print('UNINSTALLED OK')\"")
     test("python3 verify uninstalled", r, lambda x: x.get("ok") and "UNINSTALLED OK" in x.get("stdout",""))
     print()
 
-    # === 7. apt-get install / remove ===
-    print("--- 7. apt-get Install / Remove ---")
-    r = run_program("bash", ["-c", "which jq || echo 'jq not installed'"])
+    # === 7. apt-get install / remove (via run_shell) ===
+    print("--- 7. apt-get Install / Remove (via run_shell) ---")
+    r = run_shell("which jq || echo 'jq not installed'")
     test("check jq before install", r, lambda x: x.get("ok"))
 
-    r = run_program("apt-get", ["update"], timeout=120)
+    r = run_shell("apt-get update", timeout=120)
     test("apt-get update", r, lambda x: x.get("ok"))
 
-    r = run_program("apt-get", ["install", "-y", "jq"], timeout=120)
+    r = run_shell("apt-get install -y jq", timeout=120)
     test("apt-get install jq", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "echo '{\"key\":\"value\"}' | jq .key"])
+    r = run_shell('echo \'{"key":"value"}\' | jq .key')
     test("jq works", r, lambda x: x.get("ok") and "value" in x.get("stdout",""))
 
-    r = run_program("apt-get", ["remove", "-y", "jq"], timeout=60)
+    r = run_shell("apt-get remove -y jq", timeout=60)
     test("apt-get remove jq", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "which jq && echo 'STILL INSTALLED' || echo 'REMOVED OK'"])
+    r = run_shell("which jq && echo 'STILL INSTALLED' || echo 'REMOVED OK'")
     test("verify jq removed", r, lambda x: x.get("ok") and "REMOVED OK" in x.get("stdout",""))
     print()
 
-    # === 8. git clone ===
-    print("--- 8. Git Clone ---")
-    r = run_program("git", ["clone", "https://github.com/octocat/Hello-World.git", "/app/projects/Hello-World"], timeout=60)
+    # === 8. git clone (via run_shell) ===
+    print("--- 8. Git Clone (via run_shell) ---")
+    r = run_shell("git clone https://github.com/octocat/Hello-World.git /app/projects/Hello-World", timeout=60)
     test("git clone Hello-World", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "ls /app/projects/Hello-World/ && cat /app/projects/Hello-World/README"])
+    r = run_shell("ls /app/projects/Hello-World/ && cat /app/projects/Hello-World/README")
     test("verify clone contents", r, lambda x: x.get("ok"))
 
-    r = run_program("bash", ["-c", "cd /app/projects/Hello-World && git log --oneline -3"])
+    r = run_shell("cd /app/projects/Hello-World && git log --oneline -3")
     test("git log in clone", r, lambda x: x.get("ok"))
     print()
 
@@ -242,17 +263,17 @@ def main():
     test("tcp_probe github.com:443", r, lambda x: x.get("ok") and x.get("open"))
     print()
 
-    # === 10. curl ===
-    print("--- 10. curl ===")
-    r = run_program("curl", ["-s", "-o", "/dev/null", "-w", "%{http_code}", "https://www.baidu.com/"])
+    # === 10. curl (via run_shell) ===
+    print("--- 10. curl (via run_shell) ===")
+    r = run_shell('curl -s -o /dev/null -w "%{http_code}" https://www.baidu.com/')
     test("curl baidu status", r, lambda x: x.get("ok") and "200" in x.get("stdout",""))
 
-    r = run_program("curl", ["-s", "https://api.github.com/"])
+    r = run_shell("curl -s https://api.github.com/")
     test("curl api.github.com", r, lambda x: x.get("ok"))
     print()
 
-    # === 11. File persistence ===
-    print("--- 11. File Persistence ===")
+    # === 11. File persistence & audit trail ===
+    print("--- 11. File Persistence & Audit Trail ---")
     r = call("write_file", {"path": "persistence_test.txt", "content": f"Persistence test at {time.time()}\nThis file should be visible on the host at data/workspace/\n", "overwrite": True})
     test("write persistence_test.txt", r, lambda x: x.get("ok"))
 
@@ -261,6 +282,10 @@ def main():
 
     r = call("read_file", {"path": "persistence_test.txt"})
     test("read persistence_test.txt", r, lambda x: x.get("ok") and "Appended line" in x.get("content",""))
+
+    # Verify audit log is accessible and contains run_shell entries
+    r = call("read_file", {"path": "../logs/audit.jsonl"})
+    test("audit log readable", r, lambda x: x.get("ok") and "run_shell" in x.get("content",""))
     print()
 
     # === Summary ===

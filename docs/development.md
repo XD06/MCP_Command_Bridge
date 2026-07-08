@@ -55,6 +55,9 @@ MCP client
 | 15. VPS security hardening | Done | Added `ip_allowlist` and `rate_limit_per_minute` to `ServerConfig`; `validate_client_ip` in `auth.py`; `RateLimiter` class in `rate_limit.py`; env var override for `MCB_TOKEN` and `MCB_SECRET_*` in `config.py`; enhanced middleware in `server.py` with IP check + rate limit + 429 response. | Passed |
 | 16. VPS deployment infrastructure | Done | Dockerfile (Debian-slim + curl/ping/traceroute/node/npm/build-essential/git), docker-compose.yml (port 8765 exposed, host bind mounts, resource limits, `host.docker.internal`), `deploy/deploy.sh` (Docker + token + config only), reference Nginx config at `deploy/nginx/`, systemd service unit, `config.vps.yaml` template, `scripts/generate_token.py`. | Passed |
 | 17. Comprehensive test suite | Done | Added `test_rate_limit.py` (9 tests), extended `test_auth.py` (+6 IP tests), `test_config.py` (+10 env var tests), `test_network_tools.py` (+7 ping command tests), `test_server.py` (+8 VPS config + middleware integration tests with Starlette TestClient). Total: 95 tests. | Passed |
+| 18. Full container control mode | Done | Shifted from app-level restrictions to container-as-sandbox. Empty allowlists = unrestricted. Added `run_shell(command)` tool for direct shell command execution via `bash -c`. Removed DNS rebinding protection and Origin checks for mobile client compatibility. | Passed |
+| 19. UTF-8 encoding fix | Done | Replaced `locale.getpreferredencoding()` with hardcoded `encoding="utf-8"` in `executor.py` and `network_tools.py`. Added `_UTF8_ENV` to inject `LANG=C.UTF-8` into subprocess env. Dockerfile and docker-compose.yml set `LANG`, `LC_ALL`, `PYTHONUTF8`, `PYTHONIOENCODING`. Fixes Chinese/non-ASCII text errors. | Passed |
+| 20. Persistence & audit trail guidance | Done | Updated `config.py` capability descriptions to inform LLM about persistent paths (`/app/agent_workspace`, `/app/projects`) and audit logging (`/app/logs/audit.jsonl`). Added `persistence` block to `public_policy`. | Passed |
 
 ## Run
 
@@ -85,25 +88,25 @@ Smoke-test auth:
 
 ## Security Notes
 
-- `run_program` never accepts a full command string.
-- `subprocess.run` is always called with a list and `shell=False`.
-- The working directory is resolved before policy checks.
-- Secrets are replaced only after policy validation and are masked in returned args, stdout, stderr, and audit logs.
-- `npm install` and `npm ci` are intentionally not allowed in the sample config because lifecycle scripts can execute project code.
+- `run_shell` executes commands via `bash -c` — it is the PREFERRED tool for command-line operations.
+- `run_program` validates policy before secrets are replaced and before the process starts. Execution uses argv mode with `shell=False`.
+- Audit logs and returned outputs are masked so configured secret values are not exposed to the model.
+- All subprocess I/O uses hardcoded UTF-8 encoding with `errors="replace"` to prevent `UnicodeEncodeError` on Chinese/non-ASCII text.
+- Subprocess env includes `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` to ensure child processes also use UTF-8.
 - File writes are allowed only under `execution.writable_roots`.
 - Script execution roots include `agent_workspace`, so the MCP client can write a script into the fixed workspace and run it through `python3` or `node`.
 - `http_probe` and `fetch_url` reuse the same URL allowlist as `curl`; they are easier for models to call correctly.
 - `get_policy` intentionally avoids returning every detailed rule. Detailed rules are available through `get_capability_details(name)`.
 - Network diagnostics are exposed as task tools instead of raw commands.
 - `run_workspace_script` lets models run workspace scripts without constructing low-level `run_program` calls.
-- `run_program` is now an advanced tool and is hidden by default to reduce model misuse.
-- Stale client calls to hidden `run_program` are rejected by `CommandBridge.run_program` unless the call is internal.
+- `run_shell` and `run_program` are advanced tools, hidden by default unless `server.expose_advanced_tools=true`.
+- Stale client calls to hidden tools are rejected by `CommandBridge` unless the call is internal.
 - Relative script paths are resolved against script roots, so `python3 check.py` can find `agent_workspace/check.py` internally.
 - `server.require_capability_preflight=true` forces models to inspect a capability before using its task tools.
-- Subprocess output uses explicit preferred encoding with replacement to avoid `UnicodeDecodeError` reader-thread failures on Windows.
 - `system_snapshot` replaces ad hoc environment-inspection scripts with a safe read-only tool.
 - `list_files` supports capped recursive listing to reduce repeated directory calls.
 - `server.compact_toolset=true` exposes grouped tools (`http_request`, `network_check`, `workspace`) instead of many granular tools.
+- In full-control mode, the container IS the sandbox — Docker resource limits provide isolation, not application-level restrictions.
 
 ## Test Results
 

@@ -1,33 +1,46 @@
-# Mobile MCP Command Bridge
+# MCP Command Bridge
 
-Controlled local program execution bridge for mobile MCP clients.
+Full container control bridge for mobile MCP clients (RikkaHub, etc.).
 
-This project exposes MCP tools that let a client call configured local programs through structured arguments. It does not expose a shell and does not accept full command strings.
+This project exposes MCP tools that let an AI agent run shell commands, execute programs, manage files, make HTTP requests, and install packages inside a Docker container sandbox. The container IS the sandbox — the agent has full control inside it, with all operations audit-logged and workspace data persisted to the host.
 
 Works on Windows and Linux (VPS). Deploy to a VPS with the one-click script for secure remote access from your phone.
 
-## Implemented MVP
+## Features
 
-- Streamable HTTP MCP server at `/mcp`.
-- Optional SSE app construction for `/sse`.
-- Bearer token auth for HTTP transports.
-- Origin allowlist checks.
-- IP allowlist (optional, for VPS deployment).
-- App-level rate limiting (requests per minute per IP).
+### Core Tools
+
+- **`run_shell(command)`** — PREFERRED tool. Execute shell command strings directly via `bash -c`. Supports pipes (`|`), redirects (`>`), chaining (`&&`, `||`), env vars (`$HOME`), globs (`*`), and all bash syntax. No need to write scripts to files first.
+- **`run_program(program, args)`** — Structured argv execution (`shell=False`). Use when you need precise control without shell interpretation.
+- **`run_workspace_script(runtime, path)`** — Run a script file from the workspace.
+- `get_policy()` / `get_capability_details(name)` — Capability discovery for the LLM.
+
+### Task Tools
+
+- HTTP: `http_probe(url)`, `fetch_url(url)`
+- Network: `ping_host`, `dns_lookup`, `tcp_probe`, `trace_route`
+- System: `system_snapshot()`
+- Files: `list_files`, `read_file`, `write_file`, `append_file`, `make_directory`
+
+### Security & Infrastructure
+
+- Streamable HTTP MCP server at `/mcp` (mobile-compatible: no DNS rebinding / Origin checks).
+- Bearer token auth + optional IP allowlist + rate limiting.
 - Environment variable override for token and secrets (`MCB_TOKEN`, `MCB_SECRET_*`).
-- Cross-platform ping support (Windows `-n`/`-w` ms, Linux `-c`/`-W` s).
-- `get_policy` tool.
-- `run_program` tool.
-- Task-oriented HTTP tools: `http_probe`, `fetch_url`.
-- Query-only network tools: `ping_host`, `dns_lookup`, `tcp_probe`, `trace_route`.
-- Read-only system context tool: `system_snapshot`.
-- Workspace file tools: `list_files`, `read_file`, `write_file`, `append_file`, `make_directory`.
-- Workspace script runner: `run_workspace_script`.
-- Program allowlist for `curl`, `npm`, `node`, and `python3`.
-- Per-program policy checks.
-- `cwd` allowed-root checks.
-- Secret placeholder replacement and masking.
-- Timeout, output truncation, and JSONL audit logging.
+- Full UTF-8 encoding support — Chinese and other non-ASCII text works out of the box.
+- JSONL audit logging of all operations to `data/logs/audit.jsonl` (host-mapped).
+- Secret placeholder replacement and masking in outputs and logs.
+- Timeout and output truncation.
+
+### Data Persistence
+
+| Container path | Host path | Purpose |
+|---|---|---|
+| `/app/agent_workspace` | `data/workspace/` | Agent's writable workspace |
+| `/app/projects` | `data/projects/` | Cloned repos and project files |
+| `/app/logs/audit.jsonl` | `data/logs/audit.jsonl` | Audit log of all operations |
+
+Files saved outside these paths are **ephemeral** and will be lost on container restart.
 
 ## Install
 
@@ -103,34 +116,37 @@ Current result:
 
 ## Security Model
 
-`run_program` validates policy before secrets are replaced and before the process starts. Execution uses argv mode with `shell=False`. Audit logs and returned outputs are masked so configured secret values are not exposed to the model.
+### Container Full-Control Mode (VPS)
 
-File tools are restricted to `execution.writable_roots`. The default sample config uses:
+In VPS/Docker deployment, the container IS the sandbox:
+- `run_shell` and `run_program` are exposed with no restrictions on URLs, methods, paths, or arguments.
+- The agent can `apt-get install`, `pip install`, `git clone`, write scripts, and execute them.
+- Isolation comes from Docker resource limits, not application-level restrictions.
+- All operations are audit-logged to `data/logs/audit.jsonl` (host-mapped).
 
-```text
-agent_workspace
-```
+### Restricted Mode (LAN)
 
-This lets a mobile Agent create a script in the fixed workspace and then run it through the configured `python3` or `node` policy, without giving it arbitrary filesystem access.
+`run_program` and `run_shell` are hidden by default (`server.expose_advanced_tools: false`). File tools are restricted to `execution.writable_roots`. This mode is for local development.
 
-Prefer task-oriented tools over raw command execution:
+### Encoding
 
-- Use `http_probe(url)` to check whether a URL is reachable.
-- Use `fetch_url(url, max_bytes)` to fetch text from an allowed URL.
-- Use `ping_host(host)`, `dns_lookup(host)`, `tcp_probe(host, port)`, or `trace_route(host)` for connectivity diagnostics.
-- Use `system_snapshot()` for safe OS, local IP, Python version, and workspace context.
-- Use workspace file tools to create files.
-- Use `run_workspace_script(runtime, path, args)` to run scripts created in the workspace.
-- Use `run_program` only when a lower-level program call is actually needed.
+All subprocess I/O uses hardcoded UTF-8 encoding (`encoding="utf-8"`, `errors="replace"`). The Docker container sets `LANG=C.UTF-8`, `LC_ALL=C.UTF-8`, `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`. Chinese and other non-ASCII text works without errors.
 
-`get_policy()` returns a short capability summary. Use `get_capability_details(name)` for detailed rules about one capability, such as `http`, `network`, `workspace`, `programs`, or a specific program like `curl`.
+### Tool Selection Guide
 
-`run_program` is hidden by default through `server.expose_advanced_tools: false`. Keep it hidden unless you deliberately want the model to use low-level argv execution.
-Cached or stale external calls to `run_program` are rejected server-side when advanced tools are hidden.
+- **`run_shell(command)`** — PREFERRED for most tasks. Pipes, redirects, chaining, inline code.
+- `http_probe(url)` / `fetch_url(url)` — Quick HTTP status / text fetch.
+- `ping_host`, `dns_lookup`, `tcp_probe`, `trace_route` — Network diagnostics.
+- `system_snapshot()` — OS, IP, Python version info.
+- `write_file` / `read_file` — Create and read workspace files.
+- `run_workspace_script(runtime, path)` — Run a workspace script file.
+- `run_program(program, args)` — Precise argv control without shell interpretation.
 
-`server.require_capability_preflight: true` forces models to call `get_capability_details(name)` before task tools in that capability can run. For example, `write_file` returns `preflight_required` until `get_capability_details("workspace")` has been called.
+`get_policy()` returns a capability summary. `get_capability_details(name)` returns detailed rules.
 
-With `server.compact_toolset: true`, the default tool surface is intentionally small:
+`server.require_capability_preflight: true` forces models to call `get_capability_details(name)` before task tools in that capability can run.
+
+With `server.compact_toolset: true`, the default tool surface is:
 
 ```text
 get_policy

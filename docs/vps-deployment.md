@@ -117,6 +117,22 @@ Phone (RikkaHub)
 
 The bridge runs inside a Docker container based on Debian-slim (not Alpine, because the bridge dispatches real system commands that Alpine lacks). The container runs as root so the agent can `apt-get install` additional tools at runtime if needed — isolation comes from Docker itself, and resource limits are enforced via docker-compose.
 
+The container is configured with full UTF-8 locale (`LANG=C.UTF-8`, `LC_ALL=C.UTF-8`, `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`) to ensure Chinese and other non-ASCII text works without encoding errors.
+
+### Available Tools in Full-Control Mode
+
+| Tool | Description |
+|---|---|
+| `run_shell(command)` | PREFERRED. Execute shell command string via `bash -c`. Pipes, redirects, chaining, inline code. |
+| `run_program(program, args)` | Structured argv execution (`shell=False`). Precise control. |
+| `write_file` / `read_file` | Create and read files in the workspace. |
+| `list_files` / `append_file` / `make_directory` | Workspace file management. |
+| `http_probe` / `fetch_url` | Quick HTTP status check / text fetch. |
+| `ping_host` / `dns_lookup` / `tcp_probe` / `trace_route` | Network diagnostics. |
+| `system_snapshot` | OS, IP, Python version info. |
+| `run_workspace_script(runtime, path)` | Run a script file from the workspace. |
+| `get_policy` / `get_capability_details` | Capability discovery for the LLM. |
+
 ### Data Layout on Host
 
 ```
@@ -125,11 +141,12 @@ MCP_Command_Bridge/
 ├── config.yaml           # Generated from config.vps.yaml (domain filled in)
 ├── config.vps.yaml       # Template (don't edit directly)
 ├── data/
-│   ├── workspace/        # Agent's writable workspace (mapped into container)
+│   ├── workspace/        # Agent's writable workspace (mapped to /app/agent_workspace)
+│   ├── projects/         # Cloned repos and project files (mapped to /app/projects)
 │   └── logs/
-│       └── audit.jsonl   # JSONL audit log of all tool calls
-├── docker-compose.yml    # Container config (port 8765 exposed, volumes, limits)
-├── Dockerfile            # Image definition (Debian-slim + tools)
+│       └── audit.jsonl   # JSONL audit log of all tool calls (mapped to /app/logs/)
+├── docker-compose.yml    # Container config (port 8765, volumes, limits, UTF-8 env)
+├── Dockerfile            # Image definition (Debian-slim + tools + UTF-8 locale)
 ├── deploy/
 │   ├── deploy.sh         # Deployment script (Docker + token + config)
 │   └── nginx/
@@ -141,9 +158,18 @@ MCP_Command_Bridge/
 
 The container is constrained by docker-compose:
 
-- CPU: 2 cores max, 0.25 reserved
-- Memory: 512MB max, 64MB reserved
+- CPU: 1 core max, 0.1 reserved (tuned for 1-vCPU VPS)
+- Memory: 512MB max, 32MB reserved
 - Log rotation: 10MB per file, 3 files max
+
+### Encoding
+
+The container and all subprocesses use UTF-8 encoding. This is enforced at three levels:
+1. Dockerfile `ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 PYTHONIOENCODING=utf-8`
+2. docker-compose.yml environment variables (same as above)
+3. Python code: `executor.py` and `network_tools.py` hardcode `encoding="utf-8"` and inject `LANG=C.UTF-8` into subprocess env
+
+This ensures Chinese text, emoji, and other non-ASCII content works without `UnicodeEncodeError`.
 
 ### Security Layers
 
