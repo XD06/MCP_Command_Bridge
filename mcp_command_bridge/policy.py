@@ -41,7 +41,10 @@ def resolve_allowed_cwd(config: BridgeConfig, cwd: str | None) -> Path:
     target = target.resolve()
     if not target.exists() or not target.is_dir():
         raise PolicyError("cwd does not exist or is not a directory", cwd=str(target))
-    if not any(_is_relative_to(target, root) for root in config.execution.allowed_roots):
+    # Empty allowed_roots = allow any directory (container sandbox mode)
+    if config.execution.allowed_roots and not any(
+        _is_relative_to(target, root) for root in config.execution.allowed_roots
+    ):
         raise PolicyError("cwd is outside allowed roots", cwd=str(target))
     return target
 
@@ -109,7 +112,10 @@ def _validate_curl(program_config: ProgramConfig, args: list[str]) -> None:
         parsed = urlparse(url)
         if parsed.scheme.lower() in program_config.denied_schemes:
             raise PolicyError("curl URL scheme denied", program="curl", url=url)
-        if not any(_url_matches_prefix(url, prefix) for prefix in program_config.allowed_url_prefixes):
+        # Empty allowed_url_prefixes = allow all URLs
+        if program_config.allowed_url_prefixes and not any(
+            _url_matches_prefix(url, prefix) for prefix in program_config.allowed_url_prefixes
+        ):
             raise PolicyError(
                 "curl URL prefix is not allowed",
                 program="curl",
@@ -122,7 +128,8 @@ def _validate_npm(program_config: ProgramConfig, args: list[str]) -> None:
     if not args:
         raise PolicyError("npm subcommand is required", program="npm")
     subcommand = args[0]
-    if subcommand not in program_config.allowed_subcommands:
+    # Empty allowed_subcommands = allow all subcommands
+    if program_config.allowed_subcommands and subcommand not in program_config.allowed_subcommands:
         raise PolicyError("npm subcommand is not allowed", program="npm", subcommand=subcommand)
     if subcommand == "run" and len(args) < 2:
         raise PolicyError("npm run requires a script name", program="npm")
@@ -139,7 +146,10 @@ def _validate_script_program(program_config: ProgramConfig, args: list[str], pro
             script=str(script),
             hint="Use write_file to create scripts inside the fixed workspace, then run_workspace_script(runtime, path).",
         )
-    if not any(_is_relative_to(script, root) for root in program_config.allowed_script_roots):
+    # Empty allowed_script_roots = allow all paths (container sandbox mode)
+    if program_config.allowed_script_roots and not any(
+        _is_relative_to(script, root) for root in program_config.allowed_script_roots
+    ):
         raise PolicyError("script path is outside allowed roots", program=program, script=str(script))
 
 

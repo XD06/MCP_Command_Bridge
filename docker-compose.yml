@@ -1,6 +1,7 @@
 # ==========================================================================
 #  MCP Command Bridge — docker-compose.yml
-#  Data mapped to host for easy access. Resource limits enforced.
+#  Container full-control mode for small VPS (1 vCPU).
+#  Workspace and logs are persisted to host via volume mounts.
 #  Port 8765 exposed — set up your own reverse proxy (Nginx/Caddy) for TLS.
 #  Reference Nginx config: deploy/nginx/mcp-command-bridge.conf
 # ==========================================================================
@@ -27,6 +28,8 @@ services:
       - ./data/workspace:/app/agent_workspace
       # Audit logs — visible on host at ./data/logs/
       - ./data/logs:/app/logs
+      # Persistent projects directory — agent can clone repos here
+      - ./data/projects:/app/projects
 
     # Allow container to access services on the host (e.g. SiYuan at
     # host.docker.internal:6806 instead of 127.0.0.1:6806)
@@ -38,7 +41,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 384M
+          memory: 512M
         reservations:
           cpus: "0.1"
           memory: 32M

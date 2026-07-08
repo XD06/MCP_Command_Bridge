@@ -125,8 +125,10 @@ programs:
             config = load_config(str(vps_config))
             self.assertEqual(config.server.host, "0.0.0.0")
             self.assertEqual(config.server.port, 8765)
-            self.assertTrue(config.server.compact_toolset)
-            self.assertEqual(config.server.rate_limit_per_minute, 60)
+            # VPS config uses full-control mode (non-compact, advanced tools exposed)
+            self.assertFalse(config.server.compact_toolset)
+            self.assertTrue(config.server.expose_advanced_tools)
+            self.assertGreater(config.server.rate_limit_per_minute, 0)
 
 
 @unittest.skipUnless(_STARLETTE_TC, "starlette[testclient] + httpx required")

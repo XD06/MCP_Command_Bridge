@@ -76,11 +76,13 @@ def parse_config(raw: dict[str, Any], base_dir: str | Path = ".") -> BridgeConfi
     if not token:
         raise ConfigError("server.token is required (set in config or via MCB_TOKEN env var)")
 
+    allowed_roots_list = execution_raw.get("allowed_roots", [])
+    if not isinstance(allowed_roots_list, list):
+        raise ConfigError("execution.allowed_roots must be a list")
+    # Empty allowed_roots = allow any directory (container sandbox mode)
     allowed_roots = tuple(
-        _resolve_path(root, base) for root in _require_list(execution_raw, "allowed_roots")
+        _resolve_path(root, base) for root in allowed_roots_list
     )
-    if not allowed_roots:
-        raise ConfigError("execution.allowed_roots must not be empty")
 
     writable_roots = tuple(
         _resolve_path(root, base) for root in execution_raw.get("writable_roots", ())

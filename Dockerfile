@@ -1,21 +1,12 @@
 # ==========================================================================
-#  MCP Command Bridge — Dockerfile (slim build for small VPS)
+#  MCP Command Bridge — Dockerfile (container full-control mode)
 #
 #  Base: python:3.12-slim-bookworm (~150MB)
-#  Only installs what the bridge actually dispatches to:
-#    - curl        → run_program("curl"), http health check
-#    - iputils-ping → ping_host()
-#    - traceroute  → trace_route()
-#    - nodejs/npm  → run_program("node"/"npm"), run_workspace_script
-#    - git         → agent may clone repos
-#    - ca-certificates → HTTPS
-#
-#  Removed (not used by code, saves ~280MB):
-#    wget, dnsutils, net-tools, build-essential,
-#    vim, less, procps, openssh-client
+#  The container IS the sandbox — agent gets full control inside it.
+#  Installs tools the agent may need: curl, ping, traceroute, node, npm,
+#  git, wget, bash, plus Python is already in the base image.
 #
 #  NOT Alpine: musl libc breaks some Python wheels + node native modules.
-#  slim-bookworm is the sweet spot: small + compatible.
 # ==========================================================================
 FROM python:3.12-slim-bookworm
 
@@ -23,14 +14,19 @@ LABEL org.opencontainers.image.title="MCP Command Bridge"
 LABEL org.opencontainers.image.description="Controlled program execution MCP Bridge for mobile AI agents"
 LABEL org.opencontainers.image.source="https://github.com/XD06/MCP_Command_Bridge"
 
-# Install only the tools the bridge actually calls — nothing else.
+# Install tools the agent can dispatch to inside the container.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    wget \
     iputils-ping \
     traceroute \
+    dnsutils \
     nodejs \
     npm \
     git \
+    vim \
+    less \
+    procps \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -43,7 +39,7 @@ RUN pip install --no-cache-dir -e .
 
 # Copy default config and workspace placeholder
 COPY config.vps.yaml ./
-RUN mkdir -p logs agent_workspace
+RUN mkdir -p logs agent_workspace projects
 
 # Streamable HTTP is the default transport (MCP recommended standard)
 EXPOSE 8765

@@ -1,31 +1,35 @@
 # ==========================================================================
-#  MCP Command Bridge — VPS / Docker Config Template
+#  MCP Command Bridge — VPS / Docker Config (Container Full-Control Mode)
+#
+#  Since the bridge runs inside a Docker container, the container IS the
+#  sandbox. This config gives the agent full control of the container:
+#    - All programs exposed (run_program enabled)
+#    - No URL/method/script-path restrictions
+#    - Full filesystem access inside the container
+#    - Longer timeouts and larger output limits
+#
+#  Host is still protected by Docker isolation + volume mount boundaries.
 #  The deploy script copies this to config.yaml and replaces __DOMAIN__.
-#  Listen on 0.0.0.0:8765 — set up your own reverse proxy for TLS.
-#  Secrets via env vars: MCB_TOKEN, MCB_SECRET_*
 # ==========================================================================
 
 server:
-  # Listen on all interfaces — your reverse proxy handles TLS/firewall
   host: "0.0.0.0"
   port: 8765
 
   # Token is read from MCB_TOKEN env var at runtime (always overrides this).
   token: "set-via-MCB_TOKEN-env-var"
 
-  expose_advanced_tools: false
-  require_capability_preflight: true
-  compact_toolset: true
+  # Expose run_program — agent can execute any configured program
+  expose_advanced_tools: true
 
-  # IP allowlist (optional). Leave empty to allow any IP.
-  # Nginx + token + rate limiting already protect you.
-  # Uncomment and set your phone IP for an extra layer:
-  # ip_allowlist:
-  #   - "203.0.113.50"
+  # No preflight required — less friction for the agent
+  require_capability_preflight: false
+
+  # Use individual tools for clarity
+  compact_toolset: false
 
   # App-level rate limit (requests per minute per client IP).
-  # Nginx also has its own rate limit — this is a second line of defense.
-  rate_limit_per_minute: 60
+  rate_limit_per_minute: 120
 
   # Origins: the deploy script replaces __DOMAIN__ with your real domain
   allowed_origins:
@@ -37,19 +41,18 @@ server:
     - "__DOMAIN__"
 
 execution:
-  default_cwd: "."
-  allowed_roots:
-    - "."
-    - "agent_workspace"
+  default_cwd: "/app"
+  # Empty allowed_roots = allow any directory inside the container
+  allowed_roots: []
+  # Writable roots for file tools — workspace + app dir
   writable_roots:
-    - "agent_workspace"
-  timeout_seconds: 30
-  max_output_bytes: 200000
+    - "/app/agent_workspace"
+    - "/app"
+  timeout_seconds: 300
+  max_output_bytes: 500000
   audit_log: "logs/audit.jsonl"
 
 # Secrets are read from MCB_SECRET_* env vars at runtime.
-# Example: MCB_SECRET_SIYUAN_TOKEN=actual-token-here
-# Uncomment below only as a fallback; env vars always override.
 # secrets:
 #   SIYUAN_TOKEN: "replace-me"
 
@@ -57,41 +60,64 @@ programs:
   curl:
     enabled: true
     executable: "curl"
-    allowed_methods: ["GET", "POST", "PUT", "PATCH", "HEAD"]
-    denied_methods: ["DELETE"]
-    # In Docker, use host.docker.internal to reach host services (e.g. SiYuan)
-    allowed_url_prefixes:
-      - "http://host.docker.internal:6806/"
-      - "https://www.baidu.com/"
-      - "https://www.bing.com/"
-      - "https://example.com/"
-      - "https://www.google.com/"
-      - "https://github.com/"
-      - "https://api.github.com/"
-      - "https://api.ollama.com/"
-      - "https://raw.githubusercontent.com/"
-      - "https://httpbin.org/"
-    denied_schemes: ["file", "ftp"]
-    denied_args: ["-o", "--output", "-O", "--remote-name", "-T", "--upload-file", "--config", "-K"]
-    timeout_seconds: 30
+    # Empty allowed_methods = allow all methods
+    allowed_methods: []
+    denied_methods: []
+    # Empty allowed_url_prefixes = allow all URLs
+    allowed_url_prefixes: []
+    denied_schemes: ["file"]
+    denied_args: []
+    timeout_seconds: 60
 
   npm:
     enabled: true
     executable: "npm"
-    allowed_subcommands: ["test", "run"]
-    denied_args: ["exec", "x", "install", "ci"]
-    timeout_seconds: 120
+    # Empty allowed_subcommands = allow all
+    allowed_subcommands: []
+    denied_args: []
+    timeout_seconds: 300
 
   node:
     enabled: true
     executable: "node"
-    denied_args: ["-e", "--eval"]
-    allowed_script_roots: [".", "agent_workspace"]
-    timeout_seconds: 60
+    denied_args: []
+    # Empty allowed_script_roots = allow any path
+    allowed_script_roots: []
+    timeout_seconds: 300
 
   python3:
     enabled: true
     executable: "python3"
-    denied_args: ["-c", "-m"]
-    allowed_script_roots: [".", "agent_workspace"]
-    timeout_seconds: 60
+    denied_args: []
+    allowed_script_roots: []
+    timeout_seconds: 300
+
+  bash:
+    enabled: true
+    executable: "bash"
+    denied_args: []
+    timeout_seconds: 300
+
+  git:
+    enabled: true
+    executable: "git"
+    denied_args: []
+    timeout_seconds: 300
+
+  apt-get:
+    enabled: true
+    executable: "apt-get"
+    denied_args: []
+    timeout_seconds: 600
+
+  pip:
+    enabled: true
+    executable: "pip"
+    denied_args: []
+    timeout_seconds: 300
+
+  wget:
+    enabled: true
+    executable: "wget"
+    denied_args: []
+    timeout_seconds: 120

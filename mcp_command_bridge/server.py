@@ -142,12 +142,17 @@ def build_mcp(config: BridgeConfig) -> Any:
     if config.server.expose_advanced_tools:
         @mcp.tool()
         def run_program(
-            program: Literal["curl", "npm", "node", "python3"],
+            program: str,
             args: list[str],
             cwd: str | None = None,
             timeout_seconds: int | None = None,
         ) -> dict[str, object]:
-            """Advanced tool: run a configured program with structured argv arguments. Prefer task tools when possible."""
+            """Advanced tool: run a configured program with structured argv arguments.
+
+            program must be one of the configured programs (see get_policy).
+            args are passed as individual argv elements (shell=False).
+            cwd must be inside allowed_roots (or any directory if unrestricted).
+            """
             return bridge.run_program(program, args, cwd, timeout_seconds)
 
     @mcp.tool()
