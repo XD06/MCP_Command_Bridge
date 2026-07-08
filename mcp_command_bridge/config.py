@@ -135,7 +135,10 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
             "MCP Command Bridge — full container control mode. "
             "You can run programs (bash, curl, python3, node, git, apt-get, pip, wget, npm), "
             "read/write files, make HTTP requests with any method/headers via curl, "
-            "and execute scripts. The container is your sandbox."
+            "and execute scripts. The container is your sandbox.\n"
+            "IMPORTANT: Always save files under /app/agent_workspace (maps to host data/workspace/) "
+            "or /app/projects (maps to host data/projects/) for persistence across container restarts. "
+            "All operations are audit-logged to /app/logs/audit.jsonl (maps to host data/logs/)."
         )
     else:
         summary = (
@@ -170,7 +173,9 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
                 "tools": ["workspace"] if config.server.compact_toolset else ["list_files", "read_file", "write_file", "append_file", "make_directory"],
                 "description": (
                     f"Read/write files in: {[str(p) for p in config.execution.writable_roots]}. "
-                    "Use write_file to create scripts, then run_program to execute them."
+                    "Use write_file to create scripts, then run_program to execute them.\n"
+                    "PERSISTENCE: /app/agent_workspace → host data/workspace/, /app/projects → host data/projects/. "
+                    "Files saved elsewhere in the container will be LOST on restart."
                 ),
             },
             {
@@ -199,6 +204,14 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
             "run_scripts": "Write scripts with write_file, then run via run_program('python3', ['script.py']) or run_program('node', ['script.js']).",
             "install_packages": "run_program('pip', ['install', 'pkg']) or run_program('apt-get', ['install', '-y', 'pkg']).",
             "git_operations": "run_program('git', ['clone', 'url', 'path']) etc.",
+            "persistence": "IMPORTANT: Save files under /app/agent_workspace or /app/projects — these map to host and survive restarts. Other paths are ephemeral.",
+            "audit_trail": "All run_program calls are logged to /app/logs/audit.jsonl (host: data/logs/). Check with read_file('../logs/audit.jsonl').",
+        },
+        "persistence": {
+            "workspace": "/app/agent_workspace → host: data/workspace/",
+            "projects": "/app/projects → host: data/projects/",
+            "logs": "/app/logs/audit.jsonl → host: data/logs/audit.jsonl",
+            "warning": "Files saved outside these paths are EPHEMERAL and will be lost on container restart.",
         },
         "detail_names": ["http", "network", "workspace", "system", "programs", *sorted(config.programs.keys())],
         "advanced_tools_exposed": config.server.expose_advanced_tools,
@@ -257,6 +270,15 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
             "path_rule": "Use paths relative to the workspace root. '.' or the workspace directory name refers to the root.",
             "list_files": {"recursive": "Optional boolean", "max_entries": "Capped at 500"},
             "tip": "Use write_file to create Python/Node scripts, then run_program to execute them.",
+            "persistence": {
+                "persistent_paths": [
+                    "/app/agent_workspace → host: data/workspace/",
+                    "/app/projects → host: data/projects/",
+                    "/app/logs/audit.jsonl → host: data/logs/audit.jsonl",
+                ],
+                "ephemeral_warning": "Files saved to other paths (e.g. /tmp, /root) will be LOST on container restart. Always use /app/agent_workspace for important files.",
+            },
+            "audit_log": "All run_program calls are recorded to /app/logs/audit.jsonl. Read it with read_file('../logs/audit.jsonl') to review operation history.",
         }
     if name == "system":
         return {
@@ -293,6 +315,8 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
                 if config.server.expose_advanced_tools and not config.execution.allowed_roots
                 else "Use task tools first. run_program is an advanced fallback."
             ),
+            "audit": "Every run_program call is logged to /app/logs/audit.jsonl (host: data/logs/audit.jsonl) with timestamp, program, args, exit code, and duration.",
+            "persistence_reminder": "Save important outputs under /app/agent_workspace or /app/projects for persistence.",
         }
     if name in config.programs:
         program = config.programs[name]
