@@ -75,7 +75,7 @@ if [[ "$UPDATE" == "true" ]]; then
     info "Update mode: pulling latest code + rebuilding..."
     [[ -f .env ]] || die ".env not found. Run without --update first."
     git pull 2>/dev/null || warn "git pull failed (not a git repo?)"
-    docker compose up -d --build 2>&1 | tail -5
+    docker compose up -d --build
     sleep 2
     docker compose ps
     ok "Update complete!"
@@ -155,7 +155,8 @@ fi
 #  Step 3: Build + start Docker container
 # ============================================================
 info "Step 3/3: Building Docker image and starting container..."
-docker compose up -d --build 2>&1 | tail -5
+info "(this may take a few minutes on first build — downloading base image + installing tools)"
+docker compose up -d --build
 sleep 3
 
 # Verify container is running
