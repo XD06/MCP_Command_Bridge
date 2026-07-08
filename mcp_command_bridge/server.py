@@ -85,7 +85,7 @@ def build_mcp(config: BridgeConfig) -> Any:
     else:
         @mcp.tool()
         def http_probe(url: str, timeout_seconds: int | None = None) -> dict[str, object]:
-            """Check an allowed HTTP/HTTPS URL and return status. Prefer this over curl -o/-w."""
+            """Check an HTTP/HTTPS URL and return status (HEAD). Non-ASCII URLs (Chinese etc.) are auto-encoded. Uses browser User-Agent."""
             return bridge.http_probe(url, timeout_seconds)
 
         @mcp.tool()
@@ -94,7 +94,7 @@ def build_mcp(config: BridgeConfig) -> Any:
             timeout_seconds: int | None = None,
             max_bytes: int | None = None,
         ) -> dict[str, object]:
-            """Fetch text from an allowed HTTP/HTTPS URL. Use max_bytes to keep output small."""
+            """Fetch text from an HTTP/HTTPS URL (GET). Non-ASCII URLs are auto-encoded. Uses browser User-Agent to avoid anti-bot blocking. Use max_bytes to limit output."""
             return bridge.fetch_url(url, timeout_seconds, max_bytes)
 
         @mcp.tool()

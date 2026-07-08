@@ -156,10 +156,12 @@ def public_policy(config: BridgeConfig) -> dict[str, object]:
                 "name": "http",
                 "tools": http_tools,
                 "description": (
-                    "http_probe: check URL status. fetch_url: fetch page text. "
+                    "http_probe: check URL status (HEAD). fetch_url: fetch page text (GET). "
+                    "Both auto percent-encode non-ASCII URLs (e.g. Chinese) and use a browser User-Agent. "
                     "run_program('curl'): full HTTP with any method, headers, POST body — no restrictions."
                     if config.server.expose_advanced_tools
-                    else "Check status or fetch text from allowed HTTP/HTTPS URLs."
+                    else "Check status or fetch text from allowed HTTP/HTTPS URLs. "
+                    "Non-ASCII URLs are auto-encoded; browser UA is used."
                 ),
             },
             {
@@ -232,8 +234,8 @@ def capability_details(config: BridgeConfig, name: str) -> dict[str, object]:
         return {
             "name": "http",
             "tools": {
-                "http_probe": "Check a URL and return HTTP status (HEAD request).",
-                "fetch_url": "Fetch page text from a URL (GET, with output size limit).",
+                "http_probe": "Check a URL and return HTTP status (HEAD request). Non-ASCII URLs (Chinese etc.) are auto percent-encoded. Uses browser User-Agent.",
+                "fetch_url": "Fetch page text from a URL (GET, with output size limit). Non-ASCII URLs are auto percent-encoded. Uses browser User-Agent to avoid anti-bot blocking.",
             },
             "curl_via_run_program": {
                 "available": config.server.expose_advanced_tools and curl is not None,
